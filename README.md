@@ -94,6 +94,12 @@ demucs
 sentencepiece
 ```
 
+To install all dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
 ---
 
 ## 🚀 Running the Pipeline
