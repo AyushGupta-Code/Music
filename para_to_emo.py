@@ -1,21 +1,84 @@
 # para_to_emo.py
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from scipy.special import softmax
+import os
+from typing import Dict
+
 import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-def detect_emotion(paragraph: str) -> dict:
+
+# ---- Configuration ----
+# Prefer a local folder if present; otherwise use the Hub repo ID.
+LOCAL_MODEL_DIR = "/mnt/c/Users/ayush/Desktop/Music/hf_models/twitter-roberta-base-emotion"
+HUB_MODEL_ID = "cardiffnlp/twitter-roberta-base-emotion"
+
+# Torch device (CPU is fine; keep it explicit and deterministic)
+DEVICE = torch.device("cpu")
+
+
+# ---- Lazy-loaded globals (so we only load once per process) ----
+_TOKENIZER = None
+_MODEL = None
+_LABELS = None
+
+
+def _resolve_model_src() -> (str, bool):
     """
-    Offline emotion detection using your local HF cache.
-    Returns scores dict for ['anger', 'joy', 'optimism', 'sadness'].
+    Returns (model_source, local_only_flag).
+    model_source: path or hub id
+    local_only_flag: True iff we should force local-only loading
     """
-    model_dir = "/mnt/c/Users/ayush/Desktop/Music/hf_models/twitter-roberta-base-emotion"
-    tokenizer = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
-    model = AutoModelForSequenceClassification.from_pretrained(model_dir, local_files_only=True)
+    if os.path.isdir(LOCAL_MODEL_DIR):
+        return LOCAL_MODEL_DIR, True
+    return HUB_MODEL_ID, False
 
-    inputs = tokenizer(paragraph, return_tensors="pt")
-    with torch.no_grad():
-        logits = model(**inputs).logits
-    scores = softmax(logits.numpy()[0])
 
-    labels = ['anger', 'joy', 'optimism', 'sadness']
-    return dict(zip(labels, scores))
+def _load_model_and_tokenizer():
+    """Load tokenizer, model, and labels once; cache in globals."""
+    global _TOKENIZER, _MODEL, _LABELS
+    if _TOKENIZER is not None and _MODEL is not None and _LABELS is not None:
+        return
+
+    model_src, local_only = _resolve_model_src()
+
+    # Load tokenizer/model
+    _TOKENIZER = AutoTokenizer.from_pretrained(model_src, local_files_only=local_only)
+    _MODEL = AutoModelForSequenceClassification.from_pretrained(model_src, local_files_only=local_only)
+    _MODEL.to(DEVICE)
+    _MODEL.eval()
+
+    # Derive labels from config (robust to any checkpoint label order)
+    id2label = getattr(_MODEL.config, "id2label", None)
+    if isinstance(id2label, dict) and len(id2label) > 0:
+        # Sort by id to preserve correct order
+        _LABELS = [id2label[i] for i in sorted(id2label.keys(), key=int)]
+    else:
+        # Fallback for known checkpoint
+        _LABELS = ["anger", "joy", "optimism", "sadness"]
+
+
+@torch.no_grad()
+def detect_emotion(paragraph: str) -> Dict[str, float]:
+    """
+    Returns a dict of emotion -> score for the given paragraph.
+    Scores are a probability distribution (sum to 1.0).
+    """
+    _load_model_and_tokenizer()
+
+    text = (paragraph or "").strip()
+    if not text:
+        # Return a neutral distribution if empty input
+        return {label: (1.0 / len(_LABELS)) for label in _LABELS}
+
+    enc = _TOKENIZER(text, return_tensors="pt")
+    enc = {k: v.to(DEVICE) for k, v in enc.items()}
+
+    logits = _MODEL(**enc).logits  # [1, num_labels]
+    probs = torch.softmax(logits, dim=-1).squeeze(0).tolist()
+
+    return {label: float(score) for label, score in zip(_LABELS, probs)}
+
+
+# Optional: quick CLI test
+if __name__ == "__main__":
+    sample = "I can't believe this happened. I'm so frustrated right now."
+    print(detect_emotion(sample))
