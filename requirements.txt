@@ -1,22 +1,20 @@
+# Core torch stack (adjust index-url externally for CUDA/CPU builds)
 torch
-torchvision
 torchaudio
-setuptools
-wheel
-blis==0.7.9
-git+https://github.com/facebookresearch/audiocraft --no-deps
-transformers
-scipy
+
+# MusicGen
+transformers<4.44
+safetensors
 einops
-soundfile
-av
-julius
 omegaconf
-xformers --extra-index-url http://download.pytorch.org/whl/cu120
-flashy
-num2words
-librosa
-torchdiffeq
-torchmetrics
-demucs
+soundfile
 sentencepiece
+git+https://github.com/facebookresearch/audiocraft.git --no-deps
+
+# Voice + audio utilities
+melo-tts
+pydub
+scipy
+
+# Local model downloads
+huggingface_hub>=0.23

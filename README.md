@@ -100,9 +100,20 @@ PY
 
 ### 7. Download Emotion Model Locally (Avoid HF 429 Errors)
 ```bash
-mkdir -p hf_models
-huggingface-cli download cardiffnlp/twitter-roberta-base-emotion   --local-dir ./hf_models/twitter-roberta-base-emotion   --local-dir-use-symlinks False
+python scripts/download_emotion_model.py
 ```
+
+or run the `huggingface-cli download` command if you prefer manual control:
+
+```bash
+mkdir -p hf_models
+huggingface-cli download cardiffnlp/twitter-roberta-base-emotion \
+  --local-dir ./hf_models/twitter-roberta-base-emotion \
+  --local-dir-use-symlinks False
+```
+
+The downloaded weights live under `hf_models/` which is ignored by git so large binaries never end up in commits. If you need
+to store the model somewhere else, set the `EMOTION_MODEL_DIR` environment variable before running `run_music.py`.
 
 ---
 
@@ -133,6 +144,15 @@ This will:
 - **TTS sounds robotic** → Try adjusting `--speed` (e.g., `--speed 0.9`) or choose a different `language` variant if available.
 - **Audio clipping** → Lower `target_dbfs` in `openvoice_tts_no_ref.py` or reduce music ratio (`--music 0.15`).
 - **Model not found** → Ensure `hf_models/twitter-roberta-base-emotion/` exists.
+
+---
+
+## 📦 Local Assets & Git Hygiene
+- `hf_models/`, `OpenVoice/`, and `xformers/` are ignored by git on purpose. Populate them locally with downloaded models or
+  cloned repos as needed without bloating commits.
+- Generated audio (`*.wav`, `*.mp3`, etc.) is also ignored; copy results out of the repo if you want to share them.
+- Use `scripts/download_emotion_model.py` (or `EMOTION_MODEL_DIR=/custom/path`) to control where the Cardiff NLP emotion model is
+  stored.
 
 ---
 
