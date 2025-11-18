@@ -119,22 +119,64 @@ to store the model somewhere else, set the `EMOTION_MODEL_DIR` environment varia
 
 ## 🚀 Running the Pipeline
 
-### Step 1: Generate Music from Text
-```bash
-python run_music.py
-```
-This will:
-- Detect the emotion of your paragraph (offline)
-- Map it to a Western classical music profile
-- Generate `output.wav` with MusicGen
+### 1. One-command demo (emotion ➜ music ➜ narration ➜ mix)
 
-### Step 2: Generate Voiceover & Mix
 ```bash
-python openvoice_tts_no_ref.py   --text "Your paragraph here"   --music-in output.wav
+# In the conda env created above
+python scripts/download_emotion_model.py   # only needs to happen once
+python run_music.py --text "Your paragraph here" --duration 12 --voice-language EN
 ```
-This will:
-- Create `voice_openvoice.wav` (TTS)
-- Mix with background music → `final_mix.wav`
+
+What happens:
+1. `para_to_emo.detect_emotion()` loads the Cardiff NLP model from `hf_models/` and scores your paragraph.
+2. `map_emo_to_music.map_emotions_to_music()` turns the dominant mood into a MusicGen-friendly prompt.
+3. `musicgenutil.generate_music()` renders a 32 kHz WAV (`output_music.wav`).
+4. `generate_voice.synth_openvoice_default()` creates narration (`voice_openvoice.wav`).
+5. `generate_voice.duck_and_mix()` balances both stems into `final_mix.wav` (~80% voice / 20% music).
+
+All three WAV files are written to the current directory by default. Change the destination with `--output-dir ./my_renders`.
+
+### 2. CLI options you can tweak
+
+```bash
+python run_music.py \
+  --text-file prompt.txt \             # read paragraph from disk instead of --text
+  --duration 15 \                       # MusicGen length in seconds
+  --seed 1234 \                         # make the MusicGen render deterministic
+  --voice-language EN \                 # EN, EN-US, EN-UK, etc. (depends on Melo pack)
+  --voice-speed 0.95 \                  # slow down/speed up narration
+  --voice-ratio 0.85 --music-ratio 0.15 # change the final mix balance
+  --output-dir renders/my_scene
+```
+
+If you run the command with no flags you will get the included India-themed sample paragraph, which is handy for smoke tests.
+
+### 3. Run stages individually (optional)
+
+Need to experiment with a single component? You can call each module directly:
+
+```bash
+# Emotion scores only
+python - <<'PY'
+from para_to_emo import detect_emotion
+print(detect_emotion("I can't believe this happened. I'm so frustrated right now."))
+PY
+
+# Music only (accepts any natural-language prompt)
+python - <<'PY'
+from musicgenutil import generate_music
+generate_music("cinematic hopeful strings with harp and light percussion", out_wav="demo_music.wav", duration_s=8)
+PY
+
+# Voice + mix only (use any WAVs you already have)
+python - <<'PY'
+from generate_voice import synth_openvoice_default, duck_and_mix
+voice = synth_openvoice_default("Text to narrate", out_wav="voice.wav", language="EN", speed=1.0)
+duck_and_mix(voice, "output_music.wav", out_wav="mix.wav")
+PY
+```
+
+These snippets respect the same environment variables (e.g., `EMOTION_MODEL_DIR`) and output file conventions as the end-to-end script.
 
 ---
 
