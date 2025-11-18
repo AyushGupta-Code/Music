@@ -1,14 +1,17 @@
 # para_to_emo.py
 import os
-from typing import Dict
+from pathlib import Path
+from typing import Dict, Tuple
 
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 
 # ---- Configuration ----
-# Prefer a local folder if present; otherwise use the Hub repo ID.
-LOCAL_MODEL_DIR = "/mnt/c/Users/ayush/Desktop/Music/hf_models/twitter-roberta-base-emotion"
+# Prefer a local folder if present; otherwise use the Hub repo ID. Override with EMOTION_MODEL_DIR.
+_REPO_ROOT = Path(__file__).resolve().parent
+_DEFAULT_LOCAL_MODEL_DIR = _REPO_ROOT / "hf_models" / "twitter-roberta-base-emotion"
+ENV_MODEL_DIR = "EMOTION_MODEL_DIR"
 HUB_MODEL_ID = "cardiffnlp/twitter-roberta-base-emotion"
 
 # Torch device (CPU is fine; keep it explicit and deterministic)
@@ -21,14 +24,20 @@ _MODEL = None
 _LABELS = None
 
 
-def _resolve_model_src() -> (str, bool):
+def _resolve_model_src() -> Tuple[str, bool]:
     """
     Returns (model_source, local_only_flag).
     model_source: path or hub id
     local_only_flag: True iff we should force local-only loading
     """
-    if os.path.isdir(LOCAL_MODEL_DIR):
-        return LOCAL_MODEL_DIR, True
+    env_override = os.environ.get(ENV_MODEL_DIR)
+    if env_override:
+        local_dir = Path(env_override).expanduser().resolve()
+    else:
+        local_dir = _DEFAULT_LOCAL_MODEL_DIR
+
+    if local_dir.is_dir():
+        return str(local_dir), True
     return HUB_MODEL_ID, False
 
 

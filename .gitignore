@@ -1,0 +1,26 @@
+# Bytecode
+__pycache__/
+*.py[cod]
+
+# Environments
+.env
+.venv/
+.conda/
+
+# Audio artifacts
+*.wav
+*.mp3
+*.flac
+*.ogg
+
+# Local Hugging Face cache (downloaded via script)
+hf_models/*
+!hf_models/.gitkeep
+!hf_models/README.md
+
+# Vendor or heavyweight sources cloned locally
+OpenVoice/
+xformers/
+
+# Misc
+.DS_Store
