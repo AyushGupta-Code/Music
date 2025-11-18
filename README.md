@@ -1,210 +1,125 @@
-# 🎵 MusicGen + OpenVoice Environment Setup
+# Emotion-to-Music Storyteller
 
-This repository provides a complete guide for setting up an environment to run MusicGen-based audio generation models with **Western classical instrumentation** and **emotion-driven prompts**, combined with **OpenVoice/Melo-TTS** for natural voiceovers.
+Turn any short paragraph into an emotion-aware soundtrack with narration. This repo links three pieces together:
 
----
+1. Read the text and guess its dominant mood.
+2. Feed that mood to Meta's MusicGen so it writes a classical-inspired background track.
+3. Use OpenVoice/Melo-TTS to narrate the same paragraph, then blend the voice and music into a finished mix.
 
-## ✨ Features
-- Emotion-to-Music generation pipeline
-- Uses **classical Western instruments only**
-- Converts text → emotion → music prompt → background track
-- Generates natural speech from the same paragraph with **OpenVoice**
-- Mixes music & voice (default: 80% voice, 20% background music)
-- Works **offline** for emotion detection to avoid API rate limits
+The project is intentionally "single paragraph in, three WAV files out" so you can audition ideas quickly or bolt the pieces into a larger creative tool.
 
 ---
 
-## 📁 Project Structure (Example)
-```
-MusicGen_OpenVoice/
-├── run_music.py               # Generate music from emotion-derived prompt
-├── para_to_emo.py             # Detect emotion (local model)
-├── map_emo_to_music.py        # Map emotion → music profile
-├── openvoice_tts_no_ref.py    # TTS + mix with music
-├── hf_models/
-│   └── twitter-roberta-base-emotion/  # Local emotion model cache
-├── requirements.txt
-└── README.md
-```
+## What the models do (without buzzwords)
+| Stage | Model | Plain-language explanation |
+| --- | --- | --- |
+| Emotion detector | [CardiffNLP Twitter RoBERTa emotion classifier](https://huggingface.co/cardiffnlp/twitter-roberta-base-emotion) | Reads the paragraph like a human editor and estimates whether it's mostly joyful, angry, sad, or optimistic. Runs locally so you can stay offline after one download. |
+| Music maker | [MusicGen](https://github.com/facebookresearch/audiocraft) | Takes the emotion summary, swaps it for a descriptive prompt ("hopeful strings with gentle woodwinds"), and renders a 32 kHz stereo WAV using only Western classical instruments. |
+| Narrator | [OpenVoice / Melo-TTS](https://github.com/myshell-ai/OpenVoice) | Speaks your paragraph with a stock English voice. You can adjust speed, switch to other bundled accents, or point it at another Melo language pack. |
+| Mixer | Lightweight pydub script | Normalizes and loops/shortens the stems, then balances them (defaults to ~80% voice / 20% music) so the narration remains clear. |
 
 ---
 
-## ✅ Prerequisites
-- **Linux** or **WSL (Ubuntu 22.04+)**
-- **Python 3.10**
-- [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
-- `ffmpeg` installed for audio processing
-- (Optional) `build-essential` for compiling some dependencies
+## Prerequisites
+- Linux or WSL2 with Ubuntu 22.04+
+- Python 3.10
+- `ffmpeg` in your PATH
+- (Recommended) Conda or virtualenv to isolate dependencies
+
+If you plan to use a GPU build of PyTorch, install the correct wheel for your CUDA version. CPU-only also works, it just renders more slowly.
 
 ---
 
-## 🚀 Step-by-Step Installation
-
-### 1. Install Miniconda
+## 1. Set up Python dependencies
 ```bash
-wget https://repo.anaconda.com/miniconda/Miniconda-latest-Linux-x86_64.sh
-bash Miniconda-latest-Linux-x86_64.sh
-```
+# Optional but recommended: create an environment
+conda create -n musicgen python=3.10 -y
+conda activate musicgen
 
-### 2. Initialize Conda
-```bash
-echo ". ~/miniconda3/etc/profile.d/conda.sh" >> ~/.bashrc
-source ~/.bashrc
-conda --version
-```
+# System packages
+sudo apt update && sudo apt install -y ffmpeg build-essential
 
-### 3. Create Conda Environment
-```bash
-conda create -n musicgen_openvoice python=3.10 -y
-conda activate musicgen_openvoice
-```
-
-### 4. Install System Dependencies
-```bash
-sudo apt update
-sudo apt install -y ffmpeg build-essential
-```
-
-### 5. Install Python Dependencies
-Create a `requirements.txt`:
-```text
-# CPU-friendly PyTorch (change to cu118/cu121 for GPU)
-torch --index-url https://download.pytorch.org/whl/cpu
-transformers<4.44
-safetensors
-scipy
-sentencepiece
-soundfile
-pydub
-einops
-omegaconf
-melo-tts
-nltk
-git+https://github.com/facebookresearch/audiocraft.git --no-deps
-huggingface_hub>=0.23
-```
-
-Install:
-```bash
+# Python deps
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
+`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts.
 
-### 6. Download Required NLTK Data
-```bash
-python - << 'PY'
-import nltk
-nltk.download('averaged_perceptron_tagger_eng')
-PY
-```
+---
 
-### 7. Download Emotion Model Locally (Avoid HF 429 Errors)
+## 2. Cache the emotion model once
+The emotion classifier is fairly small (~500 MB) but huggingface.co rate-limits anonymous downloads. Pull it once and keep it local:
 ```bash
 python scripts/download_emotion_model.py
 ```
-
-or run the `huggingface-cli download` command if you prefer manual control:
-
-```bash
-mkdir -p hf_models
-huggingface-cli download cardiffnlp/twitter-roberta-base-emotion \
-  --local-dir ./hf_models/twitter-roberta-base-emotion \
-  --local-dir-use-symlinks False
-```
-
-The downloaded weights live under `hf_models/` which is ignored by git so large binaries never end up in commits. If you need
-to store the model somewhere else, set the `EMOTION_MODEL_DIR` environment variable before running `run_music.py`.
+By default the weights land in `hf_models/twitter-roberta-base-emotion/` (ignored by git). Set `EMOTION_MODEL_DIR=/your/path` if you want to store it elsewhere.
 
 ---
 
-## 🚀 Running the Pipeline
-
-### 1. One-command demo (emotion ➜ music ➜ narration ➜ mix)
-
+## 3. Quick start: go from paragraph to final mix
 ```bash
-# In the conda env created above
-python scripts/download_emotion_model.py   # only needs to happen once
 python run_music.py --text "Your paragraph here" --duration 12 --voice-language EN
 ```
+Outputs written to the working directory:
+- `output_music.wav` – MusicGen backing track
+- `voice_openvoice.wav` – Melo narration
+- `final_mix.wav` – blended voice-over with ducked music
 
-What happens:
-1. `para_to_emo.detect_emotion()` loads the Cardiff NLP model from `hf_models/` and scores your paragraph.
-2. `map_emo_to_music.map_emotions_to_music()` turns the dominant mood into a MusicGen-friendly prompt.
-3. `musicgenutil.generate_music()` renders a 32 kHz WAV (`output_music.wav`).
-4. `generate_voice.synth_openvoice_default()` creates narration (`voice_openvoice.wav`).
-5. `generate_voice.duck_and_mix()` balances both stems into `final_mix.wav` (~80% voice / 20% music).
-
-All three WAV files are written to the current directory by default. Change the destination with `--output-dir ./my_renders`.
-
-### 2. CLI options you can tweak
-
+### Helpful flags
 ```bash
 python run_music.py \
-  --text-file prompt.txt \             # read paragraph from disk instead of --text
-  --duration 15 \                       # MusicGen length in seconds
-  --seed 1234 \                         # make the MusicGen render deterministic
-  --voice-language EN \                 # EN, EN-US, EN-UK, etc. (depends on Melo pack)
-  --voice-speed 0.95 \                  # slow down/speed up narration
-  --voice-ratio 0.85 --music-ratio 0.15 # change the final mix balance
-  --output-dir renders/my_scene
+  --text-file story.txt \        # read from disk instead of passing --text
+  --duration 15 \                # music length in seconds
+  --seed 42 \                    # reproducible MusicGen renders
+  --voice-language EN-UK \       # pick another Melo voice family
+  --voice-speed 0.9 \            # slow down or speed up narration
+  --voice-ratio 0.85 \           # make narration louder in the mix
+  --music-ratio 0.15 \           # lower or raise the backing track
+  --output-dir renders/demo      # choose another folder for WAVs
 ```
+All arguments have sane defaults, so `python run_music.py` without flags will render an included sample paragraph for smoke testing.
 
-If you run the command with no flags you will get the included India-themed sample paragraph, which is handy for smoke tests.
+---
 
-### 3. Run stages individually (optional)
-
-Need to experiment with a single component? You can call each module directly:
-
-```bash
-# Emotion scores only
-python - <<'PY'
+## 4. Run individual stages (optional)
+Need only one part of the pipeline? Import the modules directly:
+```python
 from para_to_emo import detect_emotion
-print(detect_emotion("I can't believe this happened. I'm so frustrated right now."))
-PY
-
-# Music only (accepts any natural-language prompt)
-python - <<'PY'
+from map_emo_to_music import map_emotions_to_music
 from musicgenutil import generate_music
-generate_music("cinematic hopeful strings with harp and light percussion", out_wav="demo_music.wav", duration_s=8)
-PY
-
-# Voice + mix only (use any WAVs you already have)
-python - <<'PY'
 from generate_voice import synth_openvoice_default, duck_and_mix
-voice = synth_openvoice_default("Text to narrate", out_wav="voice.wav", language="EN", speed=1.0)
-duck_and_mix(voice, "output_music.wav", out_wav="mix.wav")
-PY
+
+paragraph = "I can't believe this happened. I'm so frustrated right now."
+emotions = detect_emotion(paragraph)
+prompt = map_emotions_to_music(emotions)["prompt"]
+
+music_path = generate_music(prompt, out_wav="demo_music.wav", duration_s=8)
+voice_path = synth_openvoice_default(paragraph, out_wav="voice.wav", language="EN")
+final_path = duck_and_mix(voice_path, music_path, out_wav="final_mix.wav")
+```
+`detect_emotion` automatically looks for the cached weights first and falls back to the Hugging Face Hub only if they are missing.
+
+---
+
+## Troubleshooting cheatsheet
+- **Model download fails with 429** → Always run `scripts/download_emotion_model.py` or pass a Hugging Face token via the `huggingface-cli` if you need to redownload.
+- **MusicGen errors about `xformers`** → Not required. Ignore the warning or uninstall it if an old global install is causing conflicts.
+- **Voice sounds off or clipped** → Lower `--voice-speed`, try a different `--voice-language`, or reduce `--music-ratio` so the backing track is softer.
+- **Need GPU acceleration** → Install the CUDA-specific PyTorch wheel first, then reinstall the rest of the requirements. MusicGen will automatically use CUDA if `torch.cuda.is_available()`.
+- **Want different instruments** → Edit `map_emo_to_music.py` to change the descriptive prompts that MusicGen receives.
+
+---
+
+## Repository map
+```
+├── run_music.py            # CLI entry point tying the stages together
+├── para_to_emo.py          # Emotion classifier wrapper
+├── map_emo_to_music.py     # Emotion scores → MusicGen prompt helper
+├── musicgenutil.py         # Utility to call MusicGen and save WAVs
+├── generate_voice.py       # Melo-TTS narration + mixing helpers
+├── scripts/download_emotion_model.py
+├── hf_models/              # Local cache for the emotion model (gitignored)
+└── requirements.txt
 ```
 
-These snippets respect the same environment variables (e.g., `EMOTION_MODEL_DIR`) and output file conventions as the end-to-end script.
-
----
-
-## ❓ Troubleshooting
-- **`xformers` errors** → Not required for CPU runs; ignore warnings.
-- **HF 429 errors** → Always use the local model cache in `hf_models/`.
-- **TTS sounds robotic** → Try adjusting `--speed` (e.g., `--speed 0.9`) or choose a different `language` variant if available.
-- **Audio clipping** → Lower `target_dbfs` in `openvoice_tts_no_ref.py` or reduce music ratio (`--music 0.15`).
-- **Model not found** → Ensure `hf_models/twitter-roberta-base-emotion/` exists.
-
----
-
-## 📦 Local Assets & Git Hygiene
-- `hf_models/`, `OpenVoice/`, and `xformers/` are ignored by git on purpose. Populate them locally with downloaded models or
-  cloned repos as needed without bloating commits.
-- Generated audio (`*.wav`, `*.mp3`, etc.) is also ignored; copy results out of the repo if you want to share them.
-- Use `scripts/download_emotion_model.py` (or `EMOTION_MODEL_DIR=/custom/path`) to control where the Cardiff NLP emotion model is
-  stored.
-
----
-
-## 📄 License
-This setup guide is provided under the MIT License. You are free to use and adapt it.
-
----
-
-## ✨ Credits
-- [Facebook Audiocraft (MusicGen)](https://github.com/facebookresearch/audiocraft)
-- [OpenVoice / Melo-TTS](https://github.com/myshell-ai/OpenVoice)
-- [HuggingFace Transformers](https://github.com/huggingface/transformers)
-- Your curiosity and creativity 🚀
+Enjoy experimenting! If you build a UI or DAW integration on top, each module was kept self-contained so you can lift it straight into your project.
