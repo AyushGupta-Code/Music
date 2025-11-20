@@ -50,13 +50,13 @@ pip install --upgrade pip
 
 # Install torch/torchaudio first so `xformers` can find them during its build
 # (adjust the index URL/versions if you use CUDA or Metal Performance Shaders)
-pip install torch==2.1.2 torchaudio==2.1.2
+pip install torch==2.1.0 torchaudio==2.1.0
 
 # Then install the rest; build isolation stays off so `xformers` can reuse
 # the already-installed torch wheel instead of failing during its wheel build.
 PIP_NO_BUILD_ISOLATION=1 pip install -r requirements.txt
 ```
-`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts. Melo-TTS is pulled directly from the official GitHub repository because it is not published on PyPI. A lightweight MeCab dictionary (`unidic-lite`) is also installed so Melo-TTS can import its Japanese tokenizer without extra system packages; if you prefer a full dictionary, set `MECAB_ARGS` before running the scripts.
+`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, an in-repo vendor copy of Melo-TTS (under `vendor/melotts` so we can relax its dependency pins), and the helper libraries used across the scripts. The vendor copy auto-discovers the bundled `unidic-lite` dictionary and only initializes MeCab when you actually synthesize Japanese, so English-only runs never error out on missing dictionaries. If you later install the full `unidic` package or a custom dictionary, set `MECAB_ARGS="-r /path/to/mecabrc -d /path/to/dicdir"` before launching the app.
 
 ### macOS-specific notes
 - Use [Homebrew](https://brew.sh/) to install system packages: `brew install ffmpeg pkg-config libsndfile`.
