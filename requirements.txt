@@ -12,9 +12,11 @@ sentencepiece
 git+https://github.com/facebookresearch/audiocraft.git
 
 # Voice + audio utilities
-melo-tts
+# MeloTTS is not on PyPI; install from the official repository
+git+https://github.com/myshell-ai/MeloTTS.git
 pydub
 scipy
+unidic-lite
 
 # Local model downloads
 huggingface_hub>=0.23
