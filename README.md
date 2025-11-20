@@ -49,7 +49,7 @@ sudo apt update && sudo apt install -y ffmpeg build-essential
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
-`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts. Melo-TTS is pulled directly from the official GitHub repository because it is not published on PyPI. A lightweight MeCab dictionary (`unidic-lite`) is also installed so Melo-TTS can import its Japanese tokenizer without extra system packages; if you prefer a full dictionary, set `MECAB_ARGS` (and optionally `MECABRC`) before running the scripts. If MeCab still complains about a missing `mecabrc` file, reinstall `unidic-lite` or run `python -c "import unidic; unidic.download()"` if you use the full `unidic` package to fetch its dictionary.
+`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts. Melo-TTS is pulled directly from the official GitHub repository because it is not published on PyPI. A lightweight MeCab dictionary (`unidic-lite`) is also installed so Melo-TTS can import its Japanese tokenizer without extra system packages; if you prefer a full dictionary, set `MECAB_ARGS` before running the scripts.
 
 ### macOS-specific notes
 - Use [Homebrew](https://brew.sh/) to install system packages: `brew install ffmpeg pkg-config libsndfile`.
@@ -126,7 +126,7 @@ final_path = duck_and_mix(voice_path, music_path, out_wav="final_mix.wav")
 ## Troubleshooting cheatsheet
 - **Model download fails with 429** → Always run `scripts/download_emotion_model.py` or pass a Hugging Face token via the `huggingface-cli` if you need to redownload.
 - **MusicGen errors about `xformers`** → Not required. Ignore the warning or uninstall it if an old global install is causing conflicts.
-- **MeCab fails to find a dictionary** → `unidic-lite` ships with the repo requirements and is auto-configured; if you use another dictionary, set `MECAB_ARGS="-d /path/to/your/mecab/dic"` (and `MECABRC=/path/to/mecabrc` if needed) before running. If installs happened before this change, reinstall `unidic-lite` so its bundled `mecabrc` is present.
+- **MeCab fails to find a dictionary** → `unidic-lite` ships with the repo requirements and is auto-configured; if you use another dictionary, set `MECAB_ARGS="-d /path/to/your/mecab/dic"` before running.
 - **Voice sounds off or clipped** → Lower `--voice-speed`, try a different `--voice-language`, or reduce `--music-ratio` so the backing track is softer.
 - **Need GPU acceleration** → Install the CUDA-specific PyTorch wheel first, then reinstall the rest of the requirements. MusicGen will automatically use CUDA if `torch.cuda.is_available()`.
 - **Want different instruments** → Edit `map_emo_to_music.py` to change the descriptive prompts that MusicGen receives.
