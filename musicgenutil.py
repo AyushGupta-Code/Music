@@ -30,9 +30,9 @@ def _load_model():
         duration=6,       # seconds (overridden per call)
         use_sampling=True,
         top_k=250,
-        top_p=0.0,
-        temperature=1.0,
-        cfg_coef=3.0,
+        top_p=0.9,        # allow more variety so backing tracks feel less rigid
+        temperature=1.15,
+        cfg_coef=3.5,
     )
     return _MODEL  # NOTE: MusicGen is not an nn.Module, no .eval()
 

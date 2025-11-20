@@ -56,6 +56,10 @@ def synth_openvoice_default(
     language: str = "EN",
     speed: float = 1.0,
     device: Optional[str] = None,
+    expressive: bool = True,
+    pause_ms: int = 220,
+    speed_variation: float = 0.08,
+    prosody_seed: int | None = None,
 ) -> str:
     """
     Generate speech with OpenVoice (Melo) using a built-in speaker (no voice cloning).
@@ -79,8 +83,40 @@ def synth_openvoice_default(
     speaker_id = spk2id[speaker_key]
     print(f"🗣️ Using speaker: '{speaker_key}' (id={speaker_id}) [{language}] → {out_wav}")
 
-    # IMPORTANT: pass integer speaker_id
-    tts.tts_to_file(text, speaker_id, out_wav, speed=speed)
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+
+    # Fall back to single-pass synthesis if expressive mode is disabled or the
+    # text is too short to benefit from per-sentence prosody.
+    if not expressive or len(sentences) <= 1:
+        tts.tts_to_file(text, speaker_id, out_wav, speed=speed)
+        abs_path = os.path.abspath(out_wav)
+        print(f"✅ Voice saved: {abs_path}")
+        return abs_path
+
+    rng = random.Random(prosody_seed if prosody_seed is not None else len(text))
+    pause = AudioSegment.silent(duration=max(0, int(pause_ms)))
+    rendered_segments: list[AudioSegment] = []
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for idx, sentence in enumerate(sentences):
+            # Add light speed jitter per sentence so long reads feel less flat.
+            jitter = rng.uniform(-abs(speed_variation), abs(speed_variation))
+            adjusted_speed = max(0.7, min(1.35, speed * (1.0 + jitter)))
+
+            seg_path = os.path.join(tmpdir, f"chunk_{idx}.wav")
+            tts.tts_to_file(sentence, speaker_id, seg_path, speed=adjusted_speed)
+
+            seg = AudioSegment.from_file(seg_path)
+
+            # Subtle emphasis: sentences ending with "!" get a tiny lift.
+            if sentence.endswith("!"):
+                seg = seg.apply_gain(_db(1.05))
+
+            rendered_segments.append(seg)
+
+        voice_mix = pause.join(rendered_segments)
+        voice_mix.export(out_wav, format="wav")
+
     abs_path = os.path.abspath(out_wav)
     print(f"✅ Voice saved: {abs_path}")
     return abs_path
@@ -118,6 +154,12 @@ def duck_and_mix(
     # Normalize both around a reasonable headroom
     voice = normalize_to_dbfs(voice, target_dbfs)
     music = normalize_to_dbfs(music, target_dbfs - 3)  # give music slightly more headroom
+
+    # Light sweetening to make the backing track feel more polished/less flat.
+    music = music.high_pass_filter(70)
+    music = music.low_pass_filter(16000)
+    music = music.compress_dynamic_range(threshold=-24.0, ratio=4.0, attack=5, release=250)
+    music = music.fade_in(800).fade_out(1200)
 
     # Length handling: loop/trim music to voice length
     if len(music) < len(voice):
