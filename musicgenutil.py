@@ -3,6 +3,9 @@ import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
+# Avoid optional xformers dependency when possible; CPU inference is fine.
+os.environ.setdefault("AUDIOCRAFT_DISABLE_XFORMERS", "1")
+
 import torch
 from audiocraft.models import MusicGen
 import torchaudio
@@ -27,9 +30,9 @@ def _load_model():
         duration=6,       # seconds (overridden per call)
         use_sampling=True,
         top_k=250,
-        top_p=0.0,
-        temperature=1.0,
-        cfg_coef=3.0,
+        top_p=0.9,        # allow more variety so backing tracks feel less rigid
+        temperature=1.15,
+        cfg_coef=3.5,
     )
     return _MODEL  # NOTE: MusicGen is not an nn.Module, no .eval()
 

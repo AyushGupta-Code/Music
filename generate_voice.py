@@ -2,8 +2,98 @@
 import os
 import math
 from typing import Optional
+import random
+import re
+import tempfile
 
 import torch
+
+
+def _locate_dic_dir(dic_module) -> str | None:
+    """Return a filesystem path to a MeCab dictionary shipped with a module.
+
+    The `unidic-lite` package always ships its dictionary, while `unidic`
+    requires a post-install download. This helper keeps `_configure_mecab_dictionary`
+    focused on environment setup and handles both cases defensively.
+    """
+
+    dic_dir = getattr(dic_module, "DICDIR", None)
+    if dic_dir and os.path.isdir(dic_dir):
+        return dic_dir
+
+    # Some packages expose the dictionary via package data instead of DICDIR.
+    try:
+        import importlib.resources as resources
+
+        with resources.as_file(resources.files(dic_module) / "dicdir") as path:
+            if path.is_dir():
+                return str(path)
+    except Exception:
+        # Keep this helper resilient; the caller will try other modules/fallbacks.
+        return None
+
+    return None
+
+
+def _configure_mecab_dictionary() -> None:
+    """Point MeCab at the bundled `unidic-lite`/`unidic` dictionary if present.
+
+    Melo imports `MeCab.Tagger()` with no arguments. Without a dictionary
+    configured, MeCab searches for `/unidic/dicdir/mecabrc` and raises the
+    runtime error seen in the original bug report. We default to the
+    lightweight dictionary installed via `requirements.txt` and still allow
+    callers to override with `MECAB_ARGS`/`MECABRC`.
+    """
+
+    # Respect any explicit configuration supplied by the user or their
+    # environment (e.g., custom dictionaries).
+    if os.environ.get("MECAB_ARGS"):
+        return
+
+    dic_module = None
+    try:
+        import unidic_lite as dic_module
+    except ImportError:
+        try:
+            import unidic as dic_module  # pragma: no cover - optional fallback
+        except ImportError:
+            # Not installed (or offline during pip install). The import will fail
+            # later in Melo with a clear MeCab error; keep the module importable
+            # for users supplying their own MECAB_ARGS/MECABRC.
+            return
+
+    dic_dir = _locate_dic_dir(dic_module)
+
+    # If `unidic` is installed but the dictionary has not been downloaded yet,
+    # try to fetch it. This can happen when pip installs succeed without
+    # post-install hooks running.
+    if (not dic_dir or not os.path.isfile(os.path.join(dic_dir, "mecabrc"))) and hasattr(dic_module, "download"):
+        try:
+            dic_module.download()  # type: ignore[call-arg]
+        except Exception:
+            # Keep failures silent; users can still supply their own paths via
+            # MECAB_ARGS/MECABRC.
+            pass
+        dic_dir = _locate_dic_dir(dic_module)
+
+    if not dic_dir or not os.path.isdir(dic_dir):
+        return
+
+    mecabrc_path = os.path.join(dic_dir, "mecabrc")
+    args_parts = []
+
+    if os.path.isfile(mecabrc_path):
+        # Tell MeCab to use the bundled config so it does not look for the
+        # system-wide /unidic/dicdir/mecabrc.
+        os.environ.setdefault("MECABRC", mecabrc_path)
+        args_parts.append(f"-r {mecabrc_path}")
+
+    args_parts.append(f"-d {dic_dir}")
+    os.environ.setdefault("MECAB_ARGS", " ".join(args_parts))
+
+
+_configure_mecab_dictionary()
+
 from melo.api import TTS
 from pydub import AudioSegment
 
@@ -47,6 +137,10 @@ def synth_openvoice_default(
     language: str = "EN",
     speed: float = 1.0,
     device: Optional[str] = None,
+    expressive: bool = True,
+    pause_ms: int = 220,
+    speed_variation: float = 0.08,
+    prosody_seed: int | None = None,
 ) -> str:
     """
     Generate speech with OpenVoice (Melo) using a built-in speaker (no voice cloning).
@@ -70,8 +164,40 @@ def synth_openvoice_default(
     speaker_id = spk2id[speaker_key]
     print(f"🗣️ Using speaker: '{speaker_key}' (id={speaker_id}) [{language}] → {out_wav}")
 
-    # IMPORTANT: pass integer speaker_id
-    tts.tts_to_file(text, speaker_id, out_wav, speed=speed)
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+
+    # Fall back to single-pass synthesis if expressive mode is disabled or the
+    # text is too short to benefit from per-sentence prosody.
+    if not expressive or len(sentences) <= 1:
+        tts.tts_to_file(text, speaker_id, out_wav, speed=speed)
+        abs_path = os.path.abspath(out_wav)
+        print(f"✅ Voice saved: {abs_path}")
+        return abs_path
+
+    rng = random.Random(prosody_seed if prosody_seed is not None else len(text))
+    pause = AudioSegment.silent(duration=max(0, int(pause_ms)))
+    rendered_segments: list[AudioSegment] = []
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for idx, sentence in enumerate(sentences):
+            # Add light speed jitter per sentence so long reads feel less flat.
+            jitter = rng.uniform(-abs(speed_variation), abs(speed_variation))
+            adjusted_speed = max(0.7, min(1.35, speed * (1.0 + jitter)))
+
+            seg_path = os.path.join(tmpdir, f"chunk_{idx}.wav")
+            tts.tts_to_file(sentence, speaker_id, seg_path, speed=adjusted_speed)
+
+            seg = AudioSegment.from_file(seg_path)
+
+            # Subtle emphasis: sentences ending with "!" get a tiny lift.
+            if sentence.endswith("!"):
+                seg = seg.apply_gain(_db(1.05))
+
+            rendered_segments.append(seg)
+
+        voice_mix = pause.join(rendered_segments)
+        voice_mix.export(out_wav, format="wav")
+
     abs_path = os.path.abspath(out_wav)
     print(f"✅ Voice saved: {abs_path}")
     return abs_path
@@ -109,6 +235,12 @@ def duck_and_mix(
     # Normalize both around a reasonable headroom
     voice = normalize_to_dbfs(voice, target_dbfs)
     music = normalize_to_dbfs(music, target_dbfs - 3)  # give music slightly more headroom
+
+    # Light sweetening to make the backing track feel more polished/less flat.
+    music = music.high_pass_filter(70)
+    music = music.low_pass_filter(16000)
+    music = music.compress_dynamic_range(threshold=-24.0, ratio=4.0, attack=5, release=250)
+    music = music.fade_in(800).fade_out(1200)
 
     # Length handling: loop/trim music to voice length
     if len(music) < len(voice):
