@@ -49,7 +49,7 @@ sudo apt update && sudo apt install -y ffmpeg build-essential
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
-`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts. Melo-TTS is pulled directly from the official GitHub repository because it is not published on PyPI. A lightweight MeCab dictionary (`unidic-lite`) is also installed so Melo-TTS can import its Japanese tokenizer without extra system packages; if you prefer a full dictionary, set `MECAB_ARGS` (and optionally `MECABRC`) before running the scripts.
+`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts. Melo-TTS is pulled directly from the official GitHub repository because it is not published on PyPI. A lightweight MeCab dictionary (`unidic-lite`) is also installed so Melo-TTS can import its Japanese tokenizer without extra system packages; if you prefer a full dictionary, set `MECAB_ARGS` (and optionally `MECABRC`) before running the scripts. If MeCab still complains about a missing `mecabrc` file, reinstall `unidic-lite` or run `python -c "import unidic; unidic.download()"` if you use the full `unidic` package to fetch its dictionary.
 
 ### macOS-specific notes
 - Use [Homebrew](https://brew.sh/) to install system packages: `brew install ffmpeg pkg-config libsndfile`.
