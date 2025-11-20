@@ -90,6 +90,17 @@ python run_music.py \
 ```
 All arguments have sane defaults, so `python run_music.py` without flags will render an included sample paragraph for smoke testing.
 
+## 4b. Use the web UI instead of the CLI
+If you prefer not to paste long text on the command line, run the bundled Flask app and use the form in your browser:
+
+```bash
+# from the repo root
+python app.py
+# or: FLASK_APP=app.py flask run --host 0.0.0.0 --port 5000
+```
+
+Open http://localhost:5000 and click **Generate Audio**. The form defaults to the sample paragraph; paste your own text and tweak the sliders as needed.
+
 ---
 
 ## 5. Run individual stages (optional)
