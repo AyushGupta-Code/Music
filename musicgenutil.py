@@ -3,6 +3,9 @@ import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
+# Avoid optional xformers dependency when possible; CPU inference is fine.
+os.environ.setdefault("AUDIOCRAFT_DISABLE_XFORMERS", "1")
+
 import torch
 from audiocraft.models import MusicGen
 import torchaudio
