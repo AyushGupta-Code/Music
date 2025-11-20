@@ -4,6 +4,53 @@ import math
 from typing import Optional
 
 import torch
+
+
+def _configure_mecab_dictionary() -> None:
+    """Point MeCab at the bundled `unidic-lite` dictionary if available.
+
+    Melo imports `MeCab.Tagger()` with no arguments. Without a dictionary
+    configured, MeCab searches for `/unidic/dicdir/mecabrc` and raises the
+    runtime error seen in the original bug report. We default to the
+    lightweight dictionary installed via `requirements.txt` and still allow
+    callers to override with `MECAB_ARGS`/`MECABRC`.
+    """
+
+    # Respect any explicit configuration supplied by the user or their
+    # environment (e.g., custom dictionaries).
+    if os.environ.get("MECAB_ARGS"):
+        return
+
+    try:
+        import unidic_lite as _dic
+    except ImportError:
+        try:
+            import unidic as _dic  # pragma: no cover - optional fallback
+        except ImportError:
+            # Not installed (or offline during pip install). The import will fail
+            # later in Melo with a clear MeCab error; keep the module importable
+            # for users supplying their own MECAB_ARGS/MECABRC.
+            return
+
+    dic_dir = getattr(_dic, "DICDIR", None)
+    if not dic_dir or not os.path.isdir(dic_dir):
+        return
+
+    mecabrc_path = os.path.join(dic_dir, "mecabrc")
+    args_parts = []
+
+    if os.path.isfile(mecabrc_path):
+        # Tell MeCab to use the bundled config so it does not look for the
+        # system-wide /unidic/dicdir/mecabrc.
+        os.environ.setdefault("MECABRC", mecabrc_path)
+        args_parts.append(f"-r {mecabrc_path}")
+
+    args_parts.append(f"-d {dic_dir}")
+    os.environ.setdefault("MECAB_ARGS", " ".join(args_parts))
+
+
+_configure_mecab_dictionary()
+
 from melo.api import TTS
 from pydub import AudioSegment
 
