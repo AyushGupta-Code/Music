@@ -30,7 +30,13 @@ If you plan to use a GPU build of PyTorch, install the correct wheel for your CU
 
 ---
 
-## 1. Set up Python dependencies
+## 1. Clone the repo
+```bash
+git clone https://github.com/<your-username>/Music.git
+cd Music
+```
+
+## 2. Set up Python dependencies
 ```bash
 # Optional but recommended: create an environment
 conda create -n musicgen python=3.10 -y
@@ -45,9 +51,14 @@ pip install -r requirements.txt
 ```
 `requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts.
 
+### macOS-specific notes
+- Use [Homebrew](https://brew.sh/) to install system packages: `brew install ffmpeg pkg-config libsndfile`.
+- Apple Silicon: prefer the CPU-only PyTorch wheels unless you have Metal Performance Shaders available; follow the [PyTorch installation selector](https://pytorch.org/get-started/locally/) for the correct `pip install` command, then run `pip install -r requirements.txt`.
+- If `pip` complains about an option like `--no-deps` inside `requirements.txt`, update the file from the latest main branch or manually reinstall with `pip install git+https://github.com/facebookresearch/audiocraft.git`.
+
 ---
 
-## 2. Cache the emotion model once
+## 3. Cache the emotion model once
 The emotion classifier is fairly small (~500 MB) but huggingface.co rate-limits anonymous downloads. Pull it once and keep it local:
 ```bash
 python scripts/download_emotion_model.py
@@ -56,7 +67,7 @@ By default the weights land in `hf_models/twitter-roberta-base-emotion/` (ignore
 
 ---
 
-## 3. Quick start: go from paragraph to final mix
+## 4. Quick start: go from paragraph to final mix
 ```bash
 python run_music.py --text "Your paragraph here" --duration 12 --voice-language EN
 ```
@@ -81,7 +92,7 @@ All arguments have sane defaults, so `python run_music.py` without flags will re
 
 ---
 
-## 4. Run individual stages (optional)
+## 5. Run individual stages (optional)
 Need only one part of the pipeline? Import the modules directly:
 ```python
 from para_to_emo import detect_emotion
