@@ -18,3 +18,5 @@ scipy
 
 # Local model downloads
 huggingface_hub>=0.23
+
+Flask>=3.0
