@@ -1,6 +1,6 @@
-# Core torch stack (adjust index-url externally for CUDA/CPU builds)
-torch
-torchaudio
+# Core torch stack (pin to a CPU-friendly build; change as needed for CUDA/MPS)
+torch==2.1.2
+torchaudio==2.1.2
 
 # MusicGen
 transformers<4.44
