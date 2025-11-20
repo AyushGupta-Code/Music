@@ -4,6 +4,15 @@ import math
 from typing import Optional
 
 import torch
+try:
+    import unidic_lite
+
+    os.environ.setdefault("MECAB_ARGS", f"-d {unidic_lite.DICDIR}")
+except ImportError:
+    # unidic-lite should be installed via requirements.txt, but allow
+    # environments with custom dictionaries to supply their own MECAB_ARGS.
+    pass
+
 from melo.api import TTS
 from pydub import AudioSegment
 
