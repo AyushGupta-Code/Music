@@ -23,7 +23,7 @@ class PostDevelopCommand(develop):
 
 setup(
     name='melotts',
-    version='0.1.2',
+    version='0.1.2.post1',
     packages=find_packages(),
     include_package_data=True,
     install_requires=reqs,
