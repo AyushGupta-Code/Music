@@ -49,6 +49,11 @@
               <span>Voice speed</span>
               <input type="number" step="0.1" name="voice_speed" id="voice_speed" value="1.0" />
             </label>
+            <label class="field checkbox">
+              <input type="hidden" name="expressive" value="off" />
+              <input type="checkbox" name="expressive" id="expressive" checked />
+              <span>Expressive narration (pauses + variation)</span>
+            </label>
             <label class="field">
               <span>Voice ratio</span>
               <input type="number" step="0.05" name="voice_ratio" id="voice_ratio" value="0.8" min="0.05" max="1" />
@@ -60,6 +65,18 @@
             <label class="field">
               <span>Seed (optional)</span>
               <input type="number" name="seed" id="seed" placeholder="random" />
+            </label>
+            <label class="field">
+              <span>Pause between sentences (ms)</span>
+              <input type="number" name="voice_pause_ms" id="voice_pause_ms" value="240" min="0" max="1500" />
+            </label>
+            <label class="field">
+              <span>Speed variation (0-0.3 recommended)</span>
+              <input type="number" step="0.01" name="voice_speed_variation" id="voice_speed_variation" value="0.12" min="0" max="0.6" />
+            </label>
+            <label class="field">
+              <span>Energy variation (0-0.3 recommended)</span>
+              <input type="number" step="0.01" name="voice_energy_variation" id="voice_energy_variation" value="0.06" min="0" max="0.6" />
             </label>
           </div>
 

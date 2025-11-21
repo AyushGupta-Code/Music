@@ -63,6 +63,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Playback speed for the synthesized voice (default: 1.0).",
     )
     parser.add_argument(
+        "--no-expressive",
+        dest="expressive",
+        action="store_false",
+        default=True,
+        help="Disable sentence-level pauses/jitter so narration stays flat (default: expressive on).",
+    )
+    parser.add_argument(
+        "--voice-pause-ms",
+        type=int,
+        default=240,
+        help="Base pause inserted between sentences when expressive mode is on (default: 240).",
+    )
+    parser.add_argument(
+        "--voice-speed-variation",
+        type=float,
+        default=0.12,
+        help="Per-sentence speed jitter (0.0-0.3 recommended) when expressive mode is on.",
+    )
+    parser.add_argument(
+        "--voice-energy-variation",
+        type=float,
+        default=0.06,
+        help="Per-sentence loudness jitter (0.0-0.3 recommended) when expressive mode is on.",
+    )
+    parser.add_argument(
         "--voice-ratio",
         type=float,
         default=0.8,
@@ -122,6 +147,10 @@ def main(args: argparse.Namespace | None = None) -> Path:
         out_wav=str(voice_wav),
         language=args.voice_language,
         speed=args.voice_speed,
+        expressive=args.expressive,
+        pause_ms=args.voice_pause_ms,
+        speed_variation=args.voice_speed_variation,
+        energy_variation=args.voice_energy_variation,
     )
 
     print("🎚️ Mixing voice over music…")

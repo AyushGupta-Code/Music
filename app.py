@@ -20,6 +20,10 @@ def _run_pipeline(
     duration: int,
     voice_language: str,
     voice_speed: float,
+    expressive: bool,
+    voice_pause_ms: int,
+    voice_speed_variation: float,
+    voice_energy_variation: float,
     voice_ratio: float,
     music_ratio: float,
     seed: int | None,
@@ -40,6 +44,10 @@ def _run_pipeline(
             out_wav=str(voice_wav),
             language=voice_language,
             speed=voice_speed,
+            expressive=expressive,
+            pause_ms=voice_pause_ms,
+            speed_variation=voice_speed_variation,
+            energy_variation=voice_energy_variation,
         )
         duck_and_mix(
             voice_path=str(voice_wav),
@@ -73,6 +81,17 @@ def _parse_int(value: str | None, default: int | None = None) -> int | None:
         raise abort(400, "Invalid integer value") from exc
 
 
+def _parse_bool(value: str | None, default: bool = True) -> bool:
+    if value is None:
+        return default
+    lowered = value.lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 @app.get("/")
 def index():
     return render_template("index.html", default_text=DEFAULT_PARAGRAPH)
@@ -84,6 +103,11 @@ def generate_audio():
     duration = _parse_int(request.form.get("duration"), 10) or 10
     voice_language = request.form.get("voice_language", "EN") or "EN"
     voice_speed = _parse_float(request.form.get("voice_speed"), 1.0)
+    expressive_values = request.form.getlist("expressive")
+    expressive = _parse_bool(expressive_values[-1] if expressive_values else None, True)
+    voice_pause_ms = _parse_int(request.form.get("voice_pause_ms"), 240) or 240
+    voice_speed_variation = _parse_float(request.form.get("voice_speed_variation"), 0.12)
+    voice_energy_variation = _parse_float(request.form.get("voice_energy_variation"), 0.06)
     voice_ratio = _parse_float(request.form.get("voice_ratio"), 0.8)
     music_ratio = _parse_float(request.form.get("music_ratio"), 0.2)
     seed = _parse_int(request.form.get("seed"))
@@ -96,6 +120,10 @@ def generate_audio():
         duration,
         voice_language,
         voice_speed,
+        expressive,
+        voice_pause_ms,
+        voice_speed_variation,
+        voice_energy_variation,
         voice_ratio,
         music_ratio,
         seed,

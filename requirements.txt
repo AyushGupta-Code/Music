@@ -1,4 +1,6 @@
-# Core torch stack (must stay aligned with audiocraft dependency torch==2.1.0)
+# Core torch stack (pin to a CPU-friendly build; change as needed for CUDA/MPS).
+# Audiocraft 1.4.0a2 targets torch/torchaudio 2.1.0; keep these in sync to avoid
+# resolver conflicts during `pip install -r requirements.txt`.
 torch==2.1.0
 torchaudio==2.1.0
 
@@ -12,8 +14,8 @@ sentencepiece
 git+https://github.com/facebookresearch/audiocraft.git
 
 # Voice + audio utilities
-# MeloTTS vendor copy keeps dependency pins aligned with the rest of the stack.
--e ./vendor/melotts
+# MeloTTS is not on PyPI; install from the official repository
+git+https://github.com/myshell-ai/MeloTTS.git
 pydub
 scipy
 unidic-lite
