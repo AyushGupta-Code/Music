@@ -16,23 +16,34 @@ torch.set_num_threads(1)
 _MODEL = None  # cached MusicGen wrapper
 
 
+def _select_model_id() -> str:
+    """Pick a higher-fidelity model on GPU, fall back to the small CPU build."""
+    return os.environ.get(
+        "MUSICGEN_MODEL",
+        "facebook/musicgen-stereo-medium" if torch.cuda.is_available() else "facebook/musicgen-small",
+    )
+
+
 def _load_model():
-    """Load and cache the small CPU MusicGen model."""
+    """Load and cache a MusicGen model tuned for better texture/clarity."""
     global _MODEL
     if _MODEL is not None:
         return _MODEL
 
-    # Use full id to avoid deprecation warning
-    _MODEL = MusicGen.get_pretrained("facebook/musicgen-small", device="cpu")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model_id = _select_model_id()
 
-    # Safe defaults; tweak later as needed
+    # Use full id to avoid deprecation warning
+    _MODEL = MusicGen.get_pretrained(model_id, device=device)
+
+    # Slightly richer sampling defaults than upstream to avoid flat/metallic output
     _MODEL.set_generation_params(
         duration=6,       # seconds (overridden per call)
         use_sampling=True,
         top_k=250,
-        top_p=0.9,        # allow more variety so backing tracks feel less rigid
-        temperature=1.15,
-        cfg_coef=3.5,
+        top_p=0.92,       # nudge toward more variety without drifting off-prompt
+        temperature=1.08,
+        cfg_coef=4.0,     # keep prompts influential so emotion mapping shines through
     )
     return _MODEL  # NOTE: MusicGen is not an nn.Module, no .eval()
 
@@ -61,6 +72,10 @@ def generate_music(prompt: str, out_wav: str = "output.wav", duration_s: int = 6
     wav = wav_list[0].cpu()  # [C, T]
     if wav.dim() == 1:
         wav = wav.unsqueeze(0)  # ensure [C, T]
+
+    # Prefer stereo for a wider bed when mixing beneath narration
+    if wav.size(0) == 1:
+        wav = wav.repeat(2, 1)
 
     torchaudio.save(out_wav, wav, sample_rate=32000)
 

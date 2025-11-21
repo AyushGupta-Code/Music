@@ -103,9 +103,9 @@ python run_music.py \
 ```
 All arguments have sane defaults, so `python run_music.py` without flags will render an included sample paragraph for smoke testing.
 
-**More natural narration:** the TTS step now splits long paragraphs into sentences, introduces short pauses, and jitters speed slightly per sentence to avoid monotone delivery. Disable this behavior with `expressive=False` or tune it via the function parameters if you import `synth_openvoice_default` directly.
+**More natural narration:** the TTS step now splits long paragraphs into sentences, introduces short pauses, and jitters speed slightly per sentence to avoid monotone delivery. Disable this behavior with `expressive=False` or tune it via the function parameters if you import `synth_openvoice_default` directly. Finished narration now runs through light EQ/compression to tame muddiness and clicks before mixing.
 
-**Smoother backing tracks:** MusicGen now samples with higher temperature/top-p to add variation, and the mix stage applies light EQ/compression plus fade-in/out so the background feels polished without overpowering the voice.
+**Smoother backing tracks:** MusicGen now samples with higher temperature/top-p to add variation, and the mix stage applies light EQ/compression plus fade-in/out so the background feels polished without overpowering the voice. If you have a GPU, the code automatically loads the stereo medium MusicGen checkpoint for richer texture (override with `MUSICGEN_MODEL=facebook/musicgen-small` to keep CPU-only).
 
 ## 4b. Use the web UI instead of the CLI
 If you prefer not to paste long text on the command line, run the bundled Flask app and use the form in your browser:
