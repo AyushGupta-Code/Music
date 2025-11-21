@@ -58,12 +58,12 @@ pip install torch==2.1.0 torchaudio==2.1.0
 # the already-installed torch wheel instead of failing during its wheel build.
 PIP_NO_BUILD_ISOLATION=1 pip install -r requirements.txt
 ```
-`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts. Melo-TTS is pulled directly from the official GitHub repository because it is not published on PyPI. A lightweight MeCab dictionary (`unidic-lite`) is also installed so Melo-TTS can import its Japanese tokenizer without extra system packages; if you prefer a full dictionary, set `MECAB_ARGS` (and optionally `MECABRC`) before running the scripts. If MeCab still complains about a missing `mecabrc` file, reinstall `unidic-lite` or run `python -c "import unidic; unidic.download()"` if you use the full `unidic` package to fetch its dictionary.
+`requirements.txt` installs PyTorch/torchaudio, the Audiocraft fork of MusicGen, Melo-TTS, and the helper libraries used across the scripts. Melo-TTS is installed from the vendored copy in `vendor/melotts/` (matching the repository version but pinned to `transformers>=4.31` to stay compatible with Audiocraft). The vendored package uses a post-release version (`0.1.2.post1`) so pip does not try to resolve the PyPI build that pins `transformers==4.27.4`; if you previously installed Melo-TTS from PyPI, uninstall it before running `pip install -r requirements.txt` to avoid cached metadata conflicts. A lightweight MeCab dictionary (`unidic-lite`) is also installed so Melo-TTS can import its Japanese tokenizer without extra system packages; if you prefer a full dictionary, set `MECAB_ARGS` (and optionally `MECABRC`) before running the scripts. If MeCab still complains about a missing `mecabrc` file, reinstall `unidic-lite` or run `python -c "import unidic; unidic.download()"` if you use the full `unidic` package to fetch its dictionary.
 
 ### macOS-specific notes
 - Use [Homebrew](https://brew.sh/) to install system packages: `brew install ffmpeg pkg-config libsndfile`.
 - Apple Silicon: prefer the CPU-only PyTorch wheels unless you have Metal Performance Shaders available; follow the [PyTorch installation selector](https://pytorch.org/get-started/locally/) for the correct `pip install` command, then run `pip install -r requirements.txt`.
-- If `pip` complains about an option like `--no-deps` inside `requirements.txt`, update the file from the latest main branch or manually reinstall with `pip install git+https://github.com/facebookresearch/audiocraft.git`.
+- If `pip` complains about an option like `--no-deps` inside `requirements.txt`, update the file from the latest main branch.
 
 ---
 
@@ -103,9 +103,9 @@ python run_music.py \
 ```
 All arguments have sane defaults, so `python run_music.py` without flags will render an included sample paragraph for smoke testing.
 
-**More natural narration:** the TTS step now splits long paragraphs into sentences, introduces short pauses, and jitters speed slightly per sentence to avoid monotone delivery. Disable this behavior with `expressive=False` or tune it via the function parameters if you import `synth_openvoice_default` directly.
+**More natural narration:** the TTS step now splits long paragraphs into sentences, introduces short pauses, and jitters speed slightly per sentence to avoid monotone delivery. Disable this behavior with `expressive=False` or tune it via the function parameters if you import `synth_openvoice_default` directly. Finished narration now runs through light EQ/compression to tame muddiness and clicks before mixing.
 
-**Smoother backing tracks:** MusicGen now samples with higher temperature/top-p to add variation, and the mix stage applies light EQ/compression plus fade-in/out so the background feels polished without overpowering the voice.
+**Smoother backing tracks:** MusicGen now samples with higher temperature/top-p to add variation, and the mix stage applies light EQ/compression plus fade-in/out so the background feels polished without overpowering the voice. If you have a GPU, the code automatically loads the stereo medium MusicGen checkpoint for richer texture (override with `MUSICGEN_MODEL=facebook/musicgen-small` to keep CPU-only).
 
 ## 4b. Use the web UI instead of the CLI
 If you prefer not to paste long text on the command line, run the bundled Flask app and use the form in your browser:

@@ -171,6 +171,12 @@ def synth_openvoice_default(
     # text is too short to benefit from per-sentence prosody.
     if not expressive or len(sentences) <= 1:
         tts.tts_to_file(text, speaker_id, out_wav, speed=speed)
+        voice_seg = AudioSegment.from_file(out_wav)
+        voice_seg = ensure_rate_channels(voice_seg, frame_rate=32000, channels=2)
+        voice_seg = voice_seg.high_pass_filter(80).low_pass_filter(12000)
+        voice_seg = voice_seg.compress_dynamic_range(threshold=-22.0, ratio=3.5, attack=5, release=200)
+        voice_seg = voice_seg.fade_in(40).fade_out(120)
+        voice_seg.export(out_wav, format="wav")
         abs_path = os.path.abspath(out_wav)
         print(f"✅ Voice saved: {abs_path}")
         return abs_path
@@ -212,6 +218,12 @@ def synth_openvoice_default(
         voice_mix = rendered_segments[0]
         for seg, pause_len in zip(rendered_segments[1:], per_sentence_pauses[:-1]):
             voice_mix += AudioSegment.silent(duration=pause_len) + seg
+
+        # Light post-EQ/compression to reduce muddiness before mixing with music
+        voice_mix = ensure_rate_channels(voice_mix, frame_rate=32000, channels=2)
+        voice_mix = voice_mix.high_pass_filter(80).low_pass_filter(12000)
+        voice_mix = voice_mix.compress_dynamic_range(threshold=-22.0, ratio=3.5, attack=5, release=200)
+        voice_mix = voice_mix.fade_in(40).fade_out(120)
 
         voice_mix.export(out_wav, format="wav")
 
