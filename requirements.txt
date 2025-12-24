@@ -1,26 +1,46 @@
-# Core torch stack (pin to a CPU-friendly build; change as needed for CUDA/MPS).
-# Audiocraft 1.4.0a2 targets torch/torchaudio 2.1.0; keep these in sync to avoid
-# resolver conflicts during `pip install -r requirements.txt`.
-torch==2.1.0
-torchaudio==2.1.0
+# -----------------------------
+# Core torch stack
+# -----------------------------
+# NOTE: If you need a specific CUDA build (e.g., cu121), install torch/torchaudio
+# from the PyTorch index URL separately. These pins keep the Python package
+# versions consistent with Transformers + AudioCraft.
+torch==2.2.2
+torchaudio==2.2.2
+# torchvision==0.17.2  # optional (only if something pulls it in)
 
-# MusicGen
-transformers>=4.31.0,<4.44
-safetensors
+# -----------------------------
+# MusicGen / AudioCraft stack
+# -----------------------------
+# Transformers must be new enough to expose EncodecModel, but also compatible
+# with the pinned torch version.
+transformers==4.41.2
+huggingface_hub>=0.20.0
+safetensors>=0.4.0
+
 einops
 omegaconf
 soundfile
 sentencepiece
+scipy
+numpy>=1.26,<2.0
+psutil
+
+# AudioCraft (MusicGen wrapper)
 git+https://github.com/facebookresearch/audiocraft.git
 
+# -----------------------------
 # Voice + audio utilities
-# MeloTTS (provides `melo.api`) is not on PyPI; install from the vendored copy aligned with transformers>=4.31
--e ./vendor/melotts
-pydub
-scipy
-unidic-lite
+# -----------------------------
+# IMPORTANT: This is the correct MeloTTS (provides `from melo.api import TTS`)
+# Do NOT install the unrelated PyPI package named "melo".
+git+https://github.com/myshell-ai/MeloTTS.git
 
-# Local model downloads
-huggingface_hub>=0.23
+# MeloTTS tokenization/dictionary (you still need: python -m unidic download)
+unidic
 
+pydub==0.25.1
+
+# -----------------------------
+# Web app
+# -----------------------------
 Flask>=3.0

@@ -1,109 +1,93 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Emotion-to-Music Storyteller</title>
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
-    />
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Music + Voice Generator</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 980px; margin: 32px auto; padding: 0 16px; }
+      textarea { width: 100%; min-height: 180px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+      label { display: block; font-weight: 600; margin-bottom: 6px; }
+      input, select, textarea { width: 100%; padding: 10px; border: 1px solid #bbb; border-radius: 10px; }
+      .btn { margin-top: 16px; padding: 12px 16px; border-radius: 12px; border: 1px solid #222; background: #111; color: #fff; cursor: pointer; }
+      .hint { color: #555; font-size: 13px; margin-top: 6px; }
+      .card { border: 1px solid #ddd; border-radius: 16px; padding: 16px; box-shadow: 0 1px 10px rgba(0,0,0,.04); }
+      .small { font-size: 13px; color: #444; }
+    </style>
   </head>
   <body>
-    <main class="page">
-      <section class="header">
-        <div>
-          <p class="eyebrow">Web Demo</p>
-          <h1>Emotion-to-Music Storyteller</h1>
-          <p class="lede">
-            Paste a paragraph and get a narrated, emotion-aware soundtrack. The
-            background track is generated with MusicGen and the narration comes
-            from OpenVoice / Melo-TTS.
-          </p>
-        </div>
-      </section>
+    <h1>Paragraph → Emotion → Music + Voice</h1>
+    <p class="small">
+      Metrics are saved to <code>metrics/metrics.csv</code> and <code>metrics/metrics.jsonl</code> after each run.
+    </p>
 
-      <section class="card">
-        <form id="generator-form" class="form">
-          <label class="field">
-            <span>Paragraph</span>
-            <textarea
-              name="paragraph"
-              id="paragraph"
-              rows="6"
-              required
-            >{{ default_text }}</textarea>
-          </label>
+    <div class="card">
+      <form method="post" action="/generate">
+        <label for="paragraph">Paragraph</label>
+        <textarea id="paragraph" name="paragraph" placeholder="Paste a paragraph here...">{{ default_paragraph }}</textarea>
 
-          <div class="grid">
-            <label class="field">
-              <span>Duration (seconds)</span>
-              <input type="number" name="duration" id="duration" value="10" min="4" max="40" />
-            </label>
-            <label class="field">
-              <span>Voice language</span>
-              <input type="text" name="voice_language" id="voice_language" value="EN" />
-            </label>
-            <label class="field">
-              <span>Voice speed</span>
-              <input type="number" step="0.1" name="voice_speed" id="voice_speed" value="1.0" />
-            </label>
-            <label class="field checkbox">
-              <input type="hidden" name="expressive" value="off" />
-              <input type="checkbox" name="expressive" id="expressive" checked />
-              <span>Expressive narration (pauses + variation)</span>
-            </label>
-            <label class="field">
-              <span>Voice ratio</span>
-              <input type="number" step="0.05" name="voice_ratio" id="voice_ratio" value="0.8" min="0.05" max="1" />
-            </label>
-            <label class="field">
-              <span>Music ratio</span>
-              <input type="number" step="0.05" name="music_ratio" id="music_ratio" value="0.2" min="0" max="1" />
-            </label>
-            <label class="field">
-              <span>Seed (optional)</span>
-              <input type="number" name="seed" id="seed" placeholder="random" />
-            </label>
-            <label class="field">
-              <span>Pause between sentences (ms)</span>
-              <input type="number" name="voice_pause_ms" id="voice_pause_ms" value="240" min="0" max="1500" />
-            </label>
-            <label class="field">
-              <span>Speed variation (0-0.3 recommended)</span>
-              <input type="number" step="0.01" name="voice_speed_variation" id="voice_speed_variation" value="0.12" min="0" max="0.6" />
-            </label>
-            <label class="field">
-              <span>Energy variation (0-0.3 recommended)</span>
-              <input type="number" step="0.01" name="voice_energy_variation" id="voice_energy_variation" value="0.06" min="0" max="0.6" />
-            </label>
+        <div class="row3" style="margin-top: 16px;">
+          <div>
+            <label for="music_model">Background Music Model</label>
+            <select id="music_model" name="music_model">
+              {% for k, v in music_models.items() %}
+                <option value="{{ k }}">{{ k }} ({{ v }})</option>
+              {% endfor %}
+            </select>
+            <div class="hint">Add more in <code>musicgenutil.DEFAULT_MUSIC_MODELS</code>.</div>
           </div>
 
-          <button type="submit" id="submit-btn">Generate Audio</button>
-        </form>
-
-        <div id="progress" class="progress hidden">
-          <div class="progress-label">Generating audio…</div>
-          <div class="progress-track">
-            <div class="progress-fill"></div>
+          <div>
+            <label for="voice_speaker">Voice Model (Speaker)</label>
+            <select id="voice_speaker" name="voice_speaker">
+              <option value="">Auto</option>
+              {% for spk in voice_speakers %}
+                <option value="{{ spk }}">{{ spk }}</option>
+              {% endfor %}
+            </select>
+            <div class="hint">Speaker keys come from your Melo/OpenVoice language pack.</div>
           </div>
-          <p class="progress-hint">
-            Music and narration can take a minute to render. Leave this tab open
-            until the download finishes.
-          </p>
+
+          <div>
+            <label for="duration_s">Music Duration (seconds)</label>
+            <input id="duration_s" name="duration_s" type="number" min="2" max="60" step="1" value="8"/>
+          </div>
         </div>
 
-        <div id="result" class="result hidden">
-          <div class="result-row">
-            <p class="eyebrow">Your mix</p>
-            <button type="button" id="reset-btn" class="ghost">Generate again</button>
+        <div class="row" style="margin-top: 16px;">
+          <div>
+            <label for="voice_language">Voice Language</label>
+            <input id="voice_language" name="voice_language" type="text" value="EN"/>
+            <div class="hint">Examples: EN, ES, FR, ZH (must be supported by your install).</div>
           </div>
-          <audio id="audio-player" controls></audio>
+          <div>
+            <label for="voice_speed">Voice Speed</label>
+            <input id="voice_speed" name="voice_speed" type="number" min="0.6" max="1.4" step="0.05" value="1.0"/>
+          </div>
         </div>
-      </section>
-    </main>
 
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+        <div class="row3" style="margin-top: 16px;">
+          <div>
+            <label for="seed">Seed (optional)</label>
+            <input id="seed" name="seed" type="number" placeholder="e.g., 42"/>
+          </div>
+          <div>
+            <label for="voice_ratio">Voice Ratio</label>
+            <input id="voice_ratio" name="voice_ratio" type="number" min="0.1" max="1.0" step="0.05" value="0.8"/>
+            <div class="hint">Higher = louder voice.</div>
+          </div>
+          <div>
+            <label for="music_ratio">Music Ratio</label>
+            <input id="music_ratio" name="music_ratio" type="number" min="0.0" max="0.9" step="0.05" value="0.2"/>
+            <div class="hint">Higher = louder music.</div>
+          </div>
+        </div>
+
+        <button class="btn" type="submit">Generate</button>
+        <div class="hint">You will get a results page with an audio preview, download link, and metrics.</div>
+      </form>
+    </div>
   </body>
 </html>

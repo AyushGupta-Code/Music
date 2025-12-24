@@ -1,113 +1,167 @@
 # musicgenutil.py
+from __future__ import annotations
+
 import os
+import time
+from typing import Dict, Optional, Tuple
 
-# -----------------------------
-# MINIMAL PERF CHANGE: threads
-# -----------------------------
-def _int_env(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, default))
-    except Exception:
-        return default
-
-
-_default_threads = min(8, (os.cpu_count() or 4))
-_threads = max(1, _int_env("MUSIC_THREADS", _default_threads))
-
-# If the user already set these, respect them; otherwise set to _threads.
-os.environ.setdefault("OMP_NUM_THREADS", str(_threads))
-os.environ.setdefault("MKL_NUM_THREADS", str(_threads))
-
-# Avoid optional xformers dependency when possible; CPU inference is fine.
-os.environ.setdefault("AUDIOCRAFT_DISABLE_XFORMERS", "1")
+# Keep CPU thread usage modest (WSL-friendly)
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import torch
-from audiocraft.models import MusicGen
-import torchaudio
+import soundfile as sf
 
-# MINIMAL PERF CHANGE: do not force 1 thread; use configured value
 try:
-    torch.set_num_threads(_threads)
-    torch.set_num_interop_threads(max(1, _threads // 2))
-except Exception:
-    # Some torch builds may not expose these setters.
-    pass
+    from audiocraft.models import MusicGen
+except Exception as e:  # pragma: no cover
+    MusicGen = None  # type: ignore
+    _AUDIOCRAFT_IMPORT_ERROR = e
 
-_MODEL = None  # cached MusicGen wrapper
+torch.set_num_threads(1)
 
+# Friendly name -> HF/audiocraft model id
+DEFAULT_MUSIC_MODELS: Dict[str, str] = {
+    "musicgen-small": "facebook/musicgen-small",
+    "musicgen-medium": "facebook/musicgen-medium",
+    # "musicgen-melody": "facebook/musicgen-melody",
+    # "musicgen-large": "facebook/musicgen-large",
+    # "musicgen-style": "facebook/musicgen-style",
+}
 
-def _select_model_id() -> str:
-    """Pick a higher-fidelity model on GPU, fall back to the small CPU build."""
-    return os.environ.get(
-        "MUSICGEN_MODEL",
-        "facebook/musicgen-stereo-medium" if torch.cuda.is_available() else "facebook/musicgen-small",
-    )
-
-
-def _load_model():
-    """Load and cache a MusicGen model tuned for better texture/clarity."""
-    global _MODEL
-    if _MODEL is not None:
-        return _MODEL
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model_id = _select_model_id()
-
-    # Use full id to avoid deprecation warning
-    _MODEL = MusicGen.get_pretrained(model_id, device=device)
-
-    # Slightly richer sampling defaults than upstream to avoid flat/metallic output
-    _MODEL.set_generation_params(
-        duration=6,       # seconds (overridden per call)
-        use_sampling=True,
-        top_k=250,
-        top_p=0.92,       # nudge toward more variety without drifting off-prompt
-        temperature=1.08,
-        cfg_coef=4.0,     # keep prompts influential so emotion mapping shines through
-    )
-    return _MODEL  # NOTE: MusicGen is not an nn.Module, no .eval()
+# Cache per (resolved_model_id, device_str)
+_MODEL_CACHE: Dict[Tuple[str, str], "MusicGen"] = {}
 
 
-def generate_music(prompt: str, out_wav: str = "output.wav", duration_s: int = 6, seed: int | None = None) -> str:
+def get_available_music_models() -> Dict[str, str]:
+    """Return dict: friendly_name -> model_id."""
+    return dict(DEFAULT_MUSIC_MODELS)
+
+
+def _resolve_model_id(model_name: str) -> str:
+    # friendly key -> model id
+    if model_name in DEFAULT_MUSIC_MODELS:
+        return DEFAULT_MUSIC_MODELS[model_name]
+    # otherwise assume already a model id
+    return model_name
+
+
+def _pick_device(device: Optional[str] = None) -> str:
+    if device:
+        return device
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _load_model(model_name: str, device: Optional[str] = None) -> Tuple["MusicGen", bool, str, str, float]:
     """
-    Generate music from a natural-language prompt using MusicGen (small, CPU).
-    Saves a 32 kHz WAV and returns its absolute path.
+    Returns: (model, from_cache, resolved_model_id, device_str, load_seconds)
+
+    Important:
+      AudioCraft's MusicGen.get_pretrained(name, device=...) loads submodules onto device internally.
+      Do NOT call model.to(device) here (some versions don't expose .to()).
     """
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError("prompt must be a non-empty string")
+    model_id = _resolve_model_id(model_name)
+    dev = _pick_device(device)
 
-    model = _load_model()
+    cache_key = (model_id, dev)
+    if cache_key in _MODEL_CACHE:
+        return _MODEL_CACHE[cache_key], True, model_id, dev, 0.0
 
-    # Per-call duration without rebuilding
-    model.set_generation_params(duration=max(1, int(duration_s)))
+    if MusicGen is None:
+        raise ImportError(
+            "audiocraft is not installed or failed to import. Install it (and deps) to use MusicGen."
+        ) from _AUDIOCRAFT_IMPORT_ERROR
 
-    # Seeding: no generator kwarg on generate(); set global seed instead
+    t0 = time.perf_counter()
+
+    # Robust candidate list
+    candidates = []
+    candidates.append(model_id)
+    if model_name != model_id:
+        candidates.append(model_name)
+    if "/" not in model_name:
+        candidates.append(f"facebook/{model_name}")
+
+    last_err: Optional[Exception] = None
+    model: Optional["MusicGen"] = None
+
+    for cand in candidates:
+        try:
+            # Official API supports device arg. :contentReference[oaicite:1]{index=1}
+            model = MusicGen.get_pretrained(cand, device=dev)
+            break
+        except TypeError:
+            # Very old audiocraft might not accept device kwarg; try without it.
+            try:
+                model = MusicGen.get_pretrained(cand)
+                break
+            except Exception as e:
+                last_err = e
+        except Exception as e:
+            last_err = e
+
+    if model is None:
+        raise RuntimeError(f"Failed to load MusicGen model '{model_name}' (resolved='{model_id}'): {last_err}")
+
+    # Set default generation params once at load
+    model.set_generation_params(use_sampling=True, top_k=250, temperature=1.0)
+
+    _MODEL_CACHE[cache_key] = model
+    dt = time.perf_counter() - t0
+    return model, False, model_id, dev, dt
+
+
+def generate_music(
+    prompt: str,
+    out_wav: str = "output_music.wav",
+    duration_s: int = 8,
+    seed: Optional[int] = None,
+    model_name: str = "musicgen-small",
+    device: Optional[str] = None,
+) -> Dict[str, object]:
+    """
+    Generates background music from prompt.
+
+    Returns dict:
+      {
+        "path": abs_path,
+        "resolved_model_id": "...",
+        "device": "cpu|cuda|mps",
+        "from_cache": bool,
+        "model_load_s": float,
+        "gen_s": float,
+        "sample_rate": int
+      }
+    """
     if seed is not None:
         torch.manual_seed(int(seed))
 
-    with torch.inference_mode():
-        # Returns List[Tensor[C, T]] (C usually 1)
+    model, from_cache, resolved_model_id, dev, load_s = _load_model(model_name=model_name, device=device)
+
+    duration_s = int(duration_s)
+    model.set_generation_params(duration=duration_s)
+
+    t0 = time.perf_counter()
+    with torch.no_grad():
         wav_list = model.generate(descriptions=[prompt], progress=False)
+    gen_s = time.perf_counter() - t0
 
-    wav = wav_list[0].cpu()  # [C, T]
+    wav = wav_list[0].cpu()  # Tensor [C, T]
+    sample_rate = int(getattr(model, "sample_rate", 32000))
+
+    # Ensure shape is valid for soundfile write
     if wav.dim() == 1:
-        wav = wav.unsqueeze(0)  # ensure [C, T]
+        wav = wav.unsqueeze(0)
 
-    # Prefer stereo for a wider bed when mixing beneath narration
-    if wav.size(0) == 1:
-        wav = wav.repeat(2, 1)
-
-    torchaudio.save(out_wav, wav, sample_rate=32000)
+    sf.write(out_wav, wav.squeeze(0).numpy().T, sample_rate)
 
     abs_path = os.path.abspath(out_wav)
-    print(f"🎵 Music saved to {abs_path}")
-    return abs_path
-
-
-if __name__ == "__main__":
-    generate_music(
-        "cinematic hopeful orchestral score with strings and light percussion",
-        out_wav="output.wav",
-        duration_s=4,
-        seed=42,
-    )
+    return {
+        "path": abs_path,
+        "resolved_model_id": resolved_model_id,
+        "device": dev,
+        "from_cache": from_cache,
+        "model_load_s": float(load_s),
+        "gen_s": float(gen_s),
+        "sample_rate": sample_rate,
+    }

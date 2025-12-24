@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Result</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 980px; margin: 32px auto; padding: 0 16px; }
+      .card { border: 1px solid #ddd; border-radius: 16px; padding: 16px; box-shadow: 0 1px 10px rgba(0,0,0,.04); margin-bottom: 16px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+      th { width: 260px; color: #333; }
+      .btn { display: inline-block; margin-top: 12px; padding: 10px 14px; border-radius: 12px; border: 1px solid #222; background: #111; color: #fff; text-decoration: none; }
+      code { background: #f5f5f5; padding: 2px 6px; border-radius: 6px; }
+      .small { font-size: 13px; color: #555; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>Generated Output</h1>
+    <p class="small">Request ID: <span class="mono">{{ request_id }}</span></p>
+
+    <div class="card">
+      <h2>Audio Preview</h2>
+      <audio controls style="width:100%;">
+        <source src="/audio/{{ request_id }}" type="audio/wav"/>
+        Your browser does not support audio playback.
+      </audio>
+      <div>
+        <a class="btn" href="/download/{{ request_id }}">Download WAV</a>
+        <a class="btn" href="/" style="margin-left:8px; background:#fff; color:#111;">New Run</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Metrics</h2>
+      <p class="small">Saved to <code>metrics/metrics.csv</code> and <code>metrics/metrics.jsonl</code>.</p>
+
+      <table>
+        <tr><th>Started (UTC)</th><td>{{ metrics.started_at_utc }}</td></tr>
+        <tr><th>Ended (UTC)</th><td>{{ metrics.ended_at_utc }}</td></tr>
+        <tr><th>Dominant Emotion</th><td>{{ metrics.meta.get("dominant_emotion","") }}</td></tr>
+        <tr><th>Music Model</th><td>{{ metrics.meta.get("music_model","") }}<br><span class="small">Resolved: {{ metrics.meta.get("music.resolved_model_id","") }}</span></td></tr>
+        <tr><th>Voice Speaker</th><td>{{ metrics.meta.get("voice_speaker","") }}<br><span class="small">Key: {{ metrics.meta.get("voice.speaker_key","") }}</span></td></tr>
+        <tr><th>Seed</th><td>{{ metrics.meta.get("seed","") }}</td></tr>
+        <tr><th>Paragraph Length</th><td>{{ metrics.meta.get("paragraph_len_chars","") }} chars</td></tr>
+        <tr><th>Duration</th><td>{{ metrics.meta.get("duration_s","") }} s</td></tr>
+        <tr><th>Voice/Music Ratio</th><td>{{ metrics.meta.get("voice_ratio","") }} / {{ metrics.meta.get("music_ratio","") }}</td></tr>
+      </table>
+
+      <h3 style="margin-top:18px;">Timings (seconds)</h3>
+      <table>
+        {% for k, v in metrics.timings_s.items() %}
+          <tr><th>{{ k }}</th><td>{{ "%.4f"|format(v) }}</td></tr>
+        {% endfor %}
+      </table>
+
+      <h3 style="margin-top:18px;">Music Prompt</h3>
+      <p class="small"><span class="mono">{{ metrics.meta.get("music_prompt","") }}</span></p>
+    </div>
+  </body>
+</html>

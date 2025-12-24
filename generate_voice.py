@@ -1,194 +1,63 @@
-# openvoice_tts_no_ref.py
-import os
+# generate_voice.py
+from __future__ import annotations
+
 import math
-from typing import Optional
-import random
-import re
-import sys
-import tempfile
-from pathlib import Path
+import os
+import time
+from typing import Dict, Optional, Tuple
 
 import torch
-
-
-# Patch huggingface_hub for compatibility with newer transformers if needed
-try:
-    import huggingface_hub
-    import huggingface_hub.utils
-    if not hasattr(huggingface_hub, "list_repo_tree"):
-        huggingface_hub.list_repo_tree = lambda *args, **kwargs: []
-
-    if not hasattr(huggingface_hub.utils, "OfflineModeIsEnabled"):
-        class OfflineModeIsEnabled(ConnectionError):
-            pass
-        huggingface_hub.utils.OfflineModeIsEnabled = OfflineModeIsEnabled
-except (ImportError, Exception):
-    pass
-
-from typing import Optional
-def _locate_dic_dir(dic_module) -> Optional[str]:
-    """Return a filesystem path to a MeCab dictionary shipped with a module.
-
-    The `unidic-lite` package always ships its dictionary, while `unidic`
-    requires a post-install download. This helper keeps `_configure_mecab_dictionary`
-    focused on environment setup and handles both cases defensively.
-    """
-
-    dic_dir = getattr(dic_module, "DICDIR", None)
-    if dic_dir and os.path.isdir(dic_dir):
-        return dic_dir
-
-    # Some packages expose the dictionary via package data instead of DICDIR.
-    try:
-        import importlib.resources as resources
-
-        with resources.as_file(resources.files(dic_module) / "dicdir") as path:
-            if path.is_dir():
-                return str(path)
-    except Exception:
-        # Keep this helper resilient; the caller will try other modules/fallbacks.
-        return None
-
-    return None
-
-
-def _configure_mecab_dictionary() -> None:
-    """Point MeCab at the bundled `unidic-lite`/`unidic` dictionary if present.
-
-    Melo imports `MeCab.Tagger()` with no arguments. Without a dictionary
-    configured, MeCab searches for `/unidic/dicdir/mecabrc` and raises the
-    runtime error seen in the original bug report. We default to the
-    lightweight dictionary installed via `requirements.txt` and still allow
-    callers to override with `MECAB_ARGS`/`MECABRC`.
-    """
-
-    # Respect any explicit configuration supplied by the user or their
-    # environment (e.g., custom dictionaries).
-    if os.environ.get("MECAB_ARGS"):
-        return
-
-    dic_module = None
-    try:
-        import unidic_lite as dic_module
-    except ImportError:
-        try:
-            import unidic as dic_module  # pragma: no cover - optional fallback
-        except ImportError:
-            # Not installed (or offline during pip install). The import will fail
-            # later in Melo with a clear MeCab error; keep the module importable
-            # for users supplying their own MECAB_ARGS/MECABRC.
-            return
-
-    dic_dir = _locate_dic_dir(dic_module)
-
-    # If `unidic` is installed but the dictionary has not been downloaded yet,
-    # try to fetch it. This can happen when pip installs succeed without
-    # post-install hooks running.
-    if (not dic_dir or not os.path.isfile(os.path.join(dic_dir, "mecabrc"))) and hasattr(dic_module, "download"):
-        try:
-            dic_module.download()  # type: ignore[call-arg]
-        except Exception:
-            # Keep failures silent; users can still supply their own paths via
-            # MECAB_ARGS/MECABRC.
-            pass
-        dic_dir = _locate_dic_dir(dic_module)
-
-    if not dic_dir or not os.path.isdir(dic_dir):
-        return
-
-    mecabrc_path = os.path.join(dic_dir, "mecabrc")
-    args_parts = []
-
-    if os.path.isfile(mecabrc_path):
-        # Tell MeCab to use the bundled config so it does not look for the
-        # system-wide /unidic/dicdir/mecabrc.
-        os.environ.setdefault("MECABRC", mecabrc_path)
-        args_parts.append(f"-r {mecabrc_path}")
-
-    args_parts.append(f"-d {dic_dir}")
-    os.environ.setdefault("MECAB_ARGS", " ".join(args_parts))
-
-
-_configure_mecab_dictionary()
-
-
-def _ensure_melo_on_path() -> None:
-    """Expose the vendored MeloTTS package when it's not installed yet."""
-    vendor_root = Path(__file__).resolve().parent / "vendor" / "melotts"
-    if vendor_root.is_dir():
-        vendor_str = str(vendor_root)
-        if vendor_str not in sys.path:
-            sys.path.insert(0, vendor_str)
-
-
-try:
-    from melo.api import TTS
-except ModuleNotFoundError as exc:
-    if exc.name not in ("melo", "melo.api"):
-        raise
-    if "melo" in sys.modules:
-        del sys.modules["melo"]
-    _ensure_melo_on_path()
-    from melo.api import TTS
+from melo.api import TTS
 from pydub import AudioSegment
 
-
-# -----------------------------
-# MINIMAL PERF CHANGE: TTS cache
-# -----------------------------
-# Cache per (language, device) so repeated calls do NOT reload Melo/OpenVoice.
-# Value: (tts, speaker_id, speaker_key)
-_TTS_CACHE: dict[tuple[str, str], tuple[TTS, int, str]] = {}
+# Cache TTS per (language, device)
+_TTS_CACHE: Dict[Tuple[str, str], TTS] = {}
 
 
-def _pick_speaker(tts: TTS, language: str) -> tuple[int, str]:
-    """Pick a deterministic speaker for the given language (fallback to first)."""
-    # your original expectation: tts.hps.data.spk2id
-    spk2id = tts.hps.data.spk2id
-
-    try:
-        speaker_key = next(k for k in spk2id.keys() if language.lower() in k.lower())
-    except StopIteration:
-        speaker_key = next(iter(spk2id.keys()))
-
-    return spk2id[speaker_key], speaker_key
+def _get_device(device: Optional[str] = None) -> str:
+    if device:
+        return device
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def _get_tts(language: str, device: str) -> tuple[TTS, int, str]:
-    key = (language, device)
+def _get_tts(language: str, device: Optional[str] = None) -> Tuple[TTS, bool, float]:
+    """
+    Returns: (tts, from_cache, load_seconds)
+    """
+    dev = _get_device(device)
+    key = (language, dev)
     if key in _TTS_CACHE:
-        return _TTS_CACHE[key]
+        return _TTS_CACHE[key], True, 0.0
 
-    tts = TTS(language=language, device=device)
-    speaker_id, speaker_key = _pick_speaker(tts, language)
+    t0 = time.perf_counter()
+    tts = TTS(language=language, device=dev)
+    dt = time.perf_counter() - t0
 
-    _TTS_CACHE[key] = (tts, speaker_id, speaker_key)
-    return _TTS_CACHE[key]
+    _TTS_CACHE[key] = tts
+    return tts, False, dt
 
 
-# -----------------------------
-# Utility helpers
-# -----------------------------
+def list_openvoice_speakers(language: str = "EN", device: Optional[str] = None) -> list[str]:
+    """
+    Return available built-in speaker keys for a Melo/OpenVoice language pack.
+    """
+    tts, _, _ = _get_tts(language=language, device=device)
+    return sorted(list(tts.hps.data.spk2id.keys()))
+
+
 def _db(change_ratio: float) -> float:
-    """Convert a linear ratio (0..1) to dB change."""
-    # guard against log(0)
     change_ratio = max(change_ratio, 1e-6)
     return 20.0 * math.log10(change_ratio)
 
 
 def normalize_to_dbfs(seg: AudioSegment, target_dbfs: float = -16.0) -> AudioSegment:
-    """
-    Peak-normalize an AudioSegment to approximately target dBFS.
-    (Pydub uses max peak; good enough for quick post.)
-    """
-    if seg.max_dBFS == float("-inf"):  # silence
+    if seg.max_dBFS == float("-inf"):
         return seg
     gain_needed = target_dbfs - seg.max_dBFS
     return seg.apply_gain(gain_needed)
 
 
 def ensure_rate_channels(seg: AudioSegment, frame_rate: int = 32000, channels: int = 2) -> AudioSegment:
-    """Resample and set channel count (mono=1, stereo=2) to keep files consistent."""
     if seg.frame_rate != frame_rate:
         seg = seg.set_frame_rate(frame_rate)
     if seg.channels != channels:
@@ -196,109 +65,61 @@ def ensure_rate_channels(seg: AudioSegment, frame_rate: int = 32000, channels: i
     return seg
 
 
-# -----------------------------
-# TTS (OpenVoice Melo) without reference audio
-# -----------------------------
 def synth_openvoice_default(
     text: str,
     out_wav: str = "voice_openvoice.wav",
     language: str = "EN",
     speed: float = 1.0,
+    speaker_key: Optional[str] = None,
     device: Optional[str] = None,
-    expressive: bool = True,
-    pause_ms: int = 240,
-    speed_variation: float = 0.12,
-    energy_variation: float = 0.06,
-    prosody_seed: int | None = None,
-) -> str:
+) -> Dict[str, object]:
     """
-    Generate speech with OpenVoice (Melo) using a built-in speaker (no voice cloning).
-    Returns the absolute path to the saved wav.
+    Generate speech using Melo/OpenVoice built-in speakers.
+
+    Returns dict:
+      {
+        "path": abs_path,
+        "language": language,
+        "speaker_key": "...",
+        "speaker_id": int,
+        "from_cache": bool,
+        "tts_load_s": float,
+        "tts_s": float
+      }
     """
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    tts, from_cache, load_s = _get_tts(language=language, device=device)
+    spk2id = tts.hps.data.spk2id  # dict: speaker_key -> id
 
-    # MINIMAL PERF CHANGE: reuse cached model + speaker selection
-    tts, speaker_id, speaker_key = _get_tts(language=language, device=device)
+    if not spk2id:
+        raise RuntimeError(f"No speakers found for language '{language}' (spk2id empty).")
 
-    print(f"🗣️ Using speaker: '{speaker_key}' (id={speaker_id}) [{language}] → {out_wav}")
+    # Choose speaker
+    if speaker_key is None or not speaker_key.strip():
+        speaker_key = next(iter(spk2id.keys()))
+    else:
+        speaker_key = speaker_key.strip()
+        if speaker_key not in spk2id:
+            raise ValueError(f"Unknown speaker_key '{speaker_key}'. Available: {sorted(spk2id.keys())}")
 
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    speaker_id = int(spk2id[speaker_key])
 
-    # Fall back to single-pass synthesis if expressive mode is disabled or the
-    # text is too short to benefit from per-sentence prosody.
-    if not expressive or len(sentences) <= 1:
-        # MINIMAL PERF CHANGE: inference_mode wrapper
-        with torch.inference_mode():
-            tts.tts_to_file(text, speaker_id, out_wav, speed=speed)
-
-        voice_seg = AudioSegment.from_file(out_wav)
-        voice_seg = ensure_rate_channels(voice_seg, frame_rate=32000, channels=2)
-        voice_seg = voice_seg.high_pass_filter(80).low_pass_filter(12000)
-        voice_seg = voice_seg.compress_dynamic_range(threshold=-22.0, ratio=3.5, attack=5, release=200)
-        voice_seg = voice_seg.fade_in(40).fade_out(120)
-        voice_seg.export(out_wav, format="wav")
-        abs_path = os.path.abspath(out_wav)
-        print(f"✅ Voice saved: {abs_path}")
-        return abs_path
-
-    rng = random.Random(prosody_seed if prosody_seed is not None else len(text))
-    rendered_segments: list[AudioSegment] = []
-    per_sentence_pauses: list[int] = []
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for idx, sentence in enumerate(sentences):
-            # Add light speed jitter per sentence so long reads feel less flat.
-            jitter = rng.uniform(-abs(speed_variation), abs(speed_variation))
-            adjusted_speed = max(0.7, min(1.35, speed * (1.0 + jitter)))
-
-            seg_path = os.path.join(tmpdir, f"chunk_{idx}.wav")
-
-            # MINIMAL PERF CHANGE: inference_mode wrapper
-            with torch.inference_mode():
-                tts.tts_to_file(sentence, speaker_id, seg_path, speed=adjusted_speed)
-
-            seg = AudioSegment.from_file(seg_path)
-
-            # Subtle emphasis: sentences ending with "!" get a tiny lift; questions linger longer.
-            if sentence.endswith("!"):
-                seg = seg.apply_gain(_db(1.05))
-
-            # Add gentle loudness jitter to keep long narrations from feeling static.
-            if energy_variation > 0:
-                gain_factor = rng.uniform(1.0 - abs(energy_variation), 1.0 + abs(energy_variation))
-                seg = seg.apply_gain(_db(gain_factor))
-
-            rendered_segments.append(seg)
-
-            extra_pause = 0
-            if sentence.endswith("?"):
-                extra_pause = int(pause_ms * 0.4)
-            elif sentence.endswith("!"):
-                extra_pause = int(pause_ms * 0.25)
-            per_sentence_pauses.append(max(0, int(pause_ms + extra_pause)))
-
-        # Stitch sentences with per-sentence pauses instead of a uniform join.
-        voice_mix = rendered_segments[0]
-        for seg, pause_len in zip(rendered_segments[1:], per_sentence_pauses[:-1]):
-            voice_mix += AudioSegment.silent(duration=pause_len) + seg
-
-        # Light post-EQ/compression to reduce muddiness before mixing with music
-        voice_mix = ensure_rate_channels(voice_mix, frame_rate=32000, channels=2)
-        voice_mix = voice_mix.high_pass_filter(80).low_pass_filter(12000)
-        voice_mix = voice_mix.compress_dynamic_range(threshold=-22.0, ratio=3.5, attack=5, release=200)
-        voice_mix = voice_mix.fade_in(40).fade_out(120)
-
-        voice_mix.export(out_wav, format="wav")
+    # Run TTS
+    t0 = time.perf_counter()
+    tts.tts_to_file(text, speaker_id, out_wav, speed=float(speed))
+    tts_s = time.perf_counter() - t0
 
     abs_path = os.path.abspath(out_wav)
-    print(f"✅ Voice saved: {abs_path}")
-    return abs_path
+    return {
+        "path": abs_path,
+        "language": language,
+        "speaker_key": speaker_key,
+        "speaker_id": speaker_id,
+        "from_cache": from_cache,
+        "tts_load_s": float(load_s),
+        "tts_s": float(tts_s),
+    }
 
 
-# -----------------------------
-# Mixing (80% voice / 20% music)
-# -----------------------------
 def duck_and_mix(
     voice_path: str,
     music_path: str,
@@ -308,84 +129,47 @@ def duck_and_mix(
     target_dbfs: float = -16.0,
     frame_rate: int = 32000,
     channels: int = 2,
-) -> str:
+) -> Dict[str, object]:
     """
-    Mix voice over music with simple ducking so voice clearly dominates.
+    Mix voice over music with basic ducking.
 
-    - Normalizes both to target dBFS (peak) to avoid clipping.
-    - Attenuates music vs voice according to the given ratios.
-    - Extends/loops or trims music to match voice length.
+    Returns dict:
+      {
+        "path": abs_path,
+        "mix_s": float
+      }
     """
     assert 0 < voice_ratio <= 1 and 0 <= music_ratio < 1, "Ratios must be between 0..1"
+
+    t0 = time.perf_counter()
 
     voice = AudioSegment.from_file(voice_path)
     music = AudioSegment.from_file(music_path)
 
-    # Conform sample rate/channels before any gain staging
     voice = ensure_rate_channels(voice, frame_rate, channels)
     music = ensure_rate_channels(music, frame_rate, channels)
 
-    # Normalize both around a reasonable headroom
     voice = normalize_to_dbfs(voice, target_dbfs)
-    music = normalize_to_dbfs(music, target_dbfs - 3)  # give music slightly more headroom
+    music = normalize_to_dbfs(music, target_dbfs - 3)
 
-    # Light sweetening to make the backing track feel more polished/less flat.
-    music = music.high_pass_filter(70)
-    music = music.low_pass_filter(16000)
-    music = music.compress_dynamic_range(threshold=-24.0, ratio=4.0, attack=5, release=250)
-    music = music.fade_in(800).fade_out(1200)
-
-    # Length handling: loop/trim music to voice length
     if len(music) < len(voice):
-        # loop music
         loops = (len(voice) // len(music)) + 1
         music = (music * loops)[: len(voice)]
     else:
         music = music[: len(voice)]
 
-    # Ratio-based gains (approximate perceived balance)
-    # Scale relative to the louder of the two (voice)
-    # If voice_ratio:music_ratio = 0.8:0.2, we attenuate music more.
-    ref = max(voice_ratio, music_ratio)
-    voice_gain_db = _db(voice_ratio / ref)  # usually 0 dB
-    music_gain_db = _db(music_ratio / ref)  # typically negative
+    ref = max(voice_ratio, music_ratio) if max(voice_ratio, music_ratio) > 0 else 1.0
+    voice_gain_db = _db(voice_ratio / ref)
+    music_gain_db = _db(music_ratio / ref)
 
-    # Apply gains
     voice_adj = voice.apply_gain(voice_gain_db)
     music_adj = music.apply_gain(music_gain_db)
 
-    # Overlay voice on music
     mixed = music_adj.overlay(voice_adj)
-
-    # Safety: final light normalization to avoid clipped exports
     mixed = normalize_to_dbfs(mixed, target_dbfs)
 
     mixed.export(out_wav, format="wav")
+    mix_s = time.perf_counter() - t0
+
     abs_out = os.path.abspath(out_wav)
-    print(f"🎚️ Final mix saved: {abs_out}")
-    return abs_out
-
-
-# -----------------------------
-# End-to-end demo
-# -----------------------------
-if __name__ == "__main__":
-    paragraph = "The battlefield roared like an angry god as steel clashed against steel, and the ground trembled under the relentless thunder of charging warhorses. Black smoke curled into the blood-red sky, carrying the stench of iron, fire, and death. Through the chaos, Commander Varos carved a path with his greatsword, each swing a devastating arc that sent enemy soldiers sprawling. Arrows hissed past his face, splintering against his armor, but he did not falter; his eyes burned with the unyielding fury of a man who refused to yield even an inch of ground. The screams of the wounded mingled with the deafening war drums, and the once-green fields were now slick with mud and crimson. Above it all, the enemy’s siege towers loomed ever closer, their monstrous silhouettes blotting out the horizon. Varos raised his sword and bellowed an order, his voice cutting through the din like lightning through a storm. The battered defenders rallied to him, their shields locking, their spears lowering, ready to meet the oncoming tide. The air was thick with dust and despair, but in that moment—surrounded, outnumbered, and pressed against the edge of annihilation—Varos felt the fire in his veins blaze hotter than ever."
-    voice_out = "voice_openvoice.wav"
-    music_in = "output.wav"   # ← your MusicGen output path
-    final_out = "final_mix.wav"
-
-    # 1) TTS
-    synth_openvoice_default(paragraph, out_wav=voice_out, language="EN", speed=1.0)
-
-    # 2) Mix (≈80% voice / 20% music)
-    duck_and_mix(
-        voice_path=voice_out,
-        music_path=music_in,
-        out_wav=final_out,
-        voice_ratio=0.8,
-        music_ratio=0.2,
-        target_dbfs=-16.0,
-        frame_rate=32000,   # MusicGen default sample rate
-        channels=2
-    )
+    return {"path": abs_out, "mix_s": float(mix_s)}
