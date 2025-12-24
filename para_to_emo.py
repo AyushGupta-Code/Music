@@ -17,6 +17,15 @@ HUB_MODEL_ID = "cardiffnlp/twitter-roberta-base-emotion"
 # Torch device (CPU is fine; keep it explicit and deterministic)
 DEVICE = torch.device("cpu")
 
+# -----------------------------
+# MINIMAL PERF CHANGE: truncation
+# -----------------------------
+# Cap tokens for long paragraphs (reduces latency). Override with EMO_MAX_LENGTH.
+try:
+    EMO_MAX_LENGTH = int(os.environ.get("EMO_MAX_LENGTH", "128"))
+except Exception:
+    EMO_MAX_LENGTH = 128
+
 
 # ---- Lazy-loaded globals (so we only load once per process) ----
 _TOKENIZER = None
@@ -65,7 +74,6 @@ def _load_model_and_tokenizer():
         _LABELS = ["anger", "joy", "optimism", "sadness"]
 
 
-@torch.no_grad()
 def detect_emotion(paragraph: str) -> Dict[str, float]:
     """
     Returns a dict of emotion -> score for the given paragraph.
@@ -78,11 +86,19 @@ def detect_emotion(paragraph: str) -> Dict[str, float]:
         # Return a neutral distribution if empty input
         return {label: (1.0 / len(_LABELS)) for label in _LABELS}
 
-    enc = _TOKENIZER(text, return_tensors="pt")
+    # MINIMAL PERF CHANGE: truncation (caps compute) + inference_mode (lower overhead)
+    enc = _TOKENIZER(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=max(8, EMO_MAX_LENGTH),
+        padding=False,
+    )
     enc = {k: v.to(DEVICE) for k, v in enc.items()}
 
-    logits = _MODEL(**enc).logits  # [1, num_labels]
-    probs = torch.softmax(logits, dim=-1).squeeze(0).tolist()
+    with torch.inference_mode():
+        logits = _MODEL(**enc).logits  # [1, num_labels]
+        probs = torch.softmax(logits, dim=-1).squeeze(0).tolist()
 
     return {label: float(score) for label, score in zip(_LABELS, probs)}
 

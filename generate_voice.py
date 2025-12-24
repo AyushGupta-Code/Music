@@ -4,12 +4,29 @@ import math
 from typing import Optional
 import random
 import re
+import sys
 import tempfile
+from pathlib import Path
 
 import torch
 
 
-def _locate_dic_dir(dic_module) -> str | None:
+# Patch huggingface_hub for compatibility with newer transformers if needed
+try:
+    import huggingface_hub
+    import huggingface_hub.utils
+    if not hasattr(huggingface_hub, "list_repo_tree"):
+        huggingface_hub.list_repo_tree = lambda *args, **kwargs: []
+
+    if not hasattr(huggingface_hub.utils, "OfflineModeIsEnabled"):
+        class OfflineModeIsEnabled(ConnectionError):
+            pass
+        huggingface_hub.utils.OfflineModeIsEnabled = OfflineModeIsEnabled
+except (ImportError, Exception):
+    pass
+
+from typing import Optional
+def _locate_dic_dir(dic_module) -> Optional[str]:
     """Return a filesystem path to a MeCab dictionary shipped with a module.
 
     The `unidic-lite` package always ships its dictionary, while `unidic`
@@ -94,8 +111,59 @@ def _configure_mecab_dictionary() -> None:
 
 _configure_mecab_dictionary()
 
-from melo.api import TTS
+
+def _ensure_melo_on_path() -> None:
+    """Expose the vendored MeloTTS package when it's not installed yet."""
+    vendor_root = Path(__file__).resolve().parent / "vendor" / "melotts"
+    if vendor_root.is_dir():
+        vendor_str = str(vendor_root)
+        if vendor_str not in sys.path:
+            sys.path.insert(0, vendor_str)
+
+
+try:
+    from melo.api import TTS
+except ModuleNotFoundError as exc:
+    if exc.name not in ("melo", "melo.api"):
+        raise
+    if "melo" in sys.modules:
+        del sys.modules["melo"]
+    _ensure_melo_on_path()
+    from melo.api import TTS
 from pydub import AudioSegment
+
+
+# -----------------------------
+# MINIMAL PERF CHANGE: TTS cache
+# -----------------------------
+# Cache per (language, device) so repeated calls do NOT reload Melo/OpenVoice.
+# Value: (tts, speaker_id, speaker_key)
+_TTS_CACHE: dict[tuple[str, str], tuple[TTS, int, str]] = {}
+
+
+def _pick_speaker(tts: TTS, language: str) -> tuple[int, str]:
+    """Pick a deterministic speaker for the given language (fallback to first)."""
+    # your original expectation: tts.hps.data.spk2id
+    spk2id = tts.hps.data.spk2id
+
+    try:
+        speaker_key = next(k for k in spk2id.keys() if language.lower() in k.lower())
+    except StopIteration:
+        speaker_key = next(iter(spk2id.keys()))
+
+    return spk2id[speaker_key], speaker_key
+
+
+def _get_tts(language: str, device: str) -> tuple[TTS, int, str]:
+    key = (language, device)
+    if key in _TTS_CACHE:
+        return _TTS_CACHE[key]
+
+    tts = TTS(language=language, device=device)
+    speaker_id, speaker_key = _pick_speaker(tts, language)
+
+    _TTS_CACHE[key] = (tts, speaker_id, speaker_key)
+    return _TTS_CACHE[key]
 
 
 # -----------------------------
@@ -150,19 +218,9 @@ def synth_openvoice_default(
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Load language pack
-    tts = TTS(language=language, device=device)
+    # MINIMAL PERF CHANGE: reuse cached model + speaker selection
+    tts, speaker_id, speaker_key = _get_tts(language=language, device=device)
 
-    # available speakers -> integer IDs
-    spk2id = tts.hps.data.spk2id  # e.g., {"EN-US": 0, "EN-UK": 1, "EN-LIBRITTS": 2, ...}
-
-    # Pick a speaker matching the language key; else fallback to first
-    try:
-        speaker_key = next(k for k in spk2id.keys() if language.lower() in k.lower())
-    except StopIteration:
-        speaker_key = next(iter(spk2id.keys()))
-
-    speaker_id = spk2id[speaker_key]
     print(f"🗣️ Using speaker: '{speaker_key}' (id={speaker_id}) [{language}] → {out_wav}")
 
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
@@ -170,7 +228,10 @@ def synth_openvoice_default(
     # Fall back to single-pass synthesis if expressive mode is disabled or the
     # text is too short to benefit from per-sentence prosody.
     if not expressive or len(sentences) <= 1:
-        tts.tts_to_file(text, speaker_id, out_wav, speed=speed)
+        # MINIMAL PERF CHANGE: inference_mode wrapper
+        with torch.inference_mode():
+            tts.tts_to_file(text, speaker_id, out_wav, speed=speed)
+
         voice_seg = AudioSegment.from_file(out_wav)
         voice_seg = ensure_rate_channels(voice_seg, frame_rate=32000, channels=2)
         voice_seg = voice_seg.high_pass_filter(80).low_pass_filter(12000)
@@ -192,7 +253,10 @@ def synth_openvoice_default(
             adjusted_speed = max(0.7, min(1.35, speed * (1.0 + jitter)))
 
             seg_path = os.path.join(tmpdir, f"chunk_{idx}.wav")
-            tts.tts_to_file(sentence, speaker_id, seg_path, speed=adjusted_speed)
+
+            # MINIMAL PERF CHANGE: inference_mode wrapper
+            with torch.inference_mode():
+                tts.tts_to_file(sentence, speaker_id, seg_path, speed=adjusted_speed)
 
             seg = AudioSegment.from_file(seg_path)
 

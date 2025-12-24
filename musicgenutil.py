@@ -1,7 +1,22 @@
 # musicgenutil.py
 import os
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+# -----------------------------
+# MINIMAL PERF CHANGE: threads
+# -----------------------------
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except Exception:
+        return default
+
+
+_default_threads = min(8, (os.cpu_count() or 4))
+_threads = max(1, _int_env("MUSIC_THREADS", _default_threads))
+
+# If the user already set these, respect them; otherwise set to _threads.
+os.environ.setdefault("OMP_NUM_THREADS", str(_threads))
+os.environ.setdefault("MKL_NUM_THREADS", str(_threads))
 
 # Avoid optional xformers dependency when possible; CPU inference is fine.
 os.environ.setdefault("AUDIOCRAFT_DISABLE_XFORMERS", "1")
@@ -10,8 +25,13 @@ import torch
 from audiocraft.models import MusicGen
 import torchaudio
 
-# Keep CPU memory/threads small (WSL friendly)
-torch.set_num_threads(1)
+# MINIMAL PERF CHANGE: do not force 1 thread; use configured value
+try:
+    torch.set_num_threads(_threads)
+    torch.set_num_interop_threads(max(1, _threads // 2))
+except Exception:
+    # Some torch builds may not expose these setters.
+    pass
 
 _MODEL = None  # cached MusicGen wrapper
 
