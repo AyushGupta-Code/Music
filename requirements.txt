@@ -1,43 +1,59 @@
+# ============================================================
+# requirements.txt (based on what worked in your environment)
+# ============================================================
+
 # -----------------------------
 # Core torch stack
 # -----------------------------
-# NOTE: If you need a specific CUDA build (e.g., cu121), install torch/torchaudio
-# from the PyTorch index URL separately. These pins keep the Python package
-# versions consistent with Transformers + AudioCraft.
+# You are currently on torch 2.2.2 (+cu121 in your env). Keep torch/torchaudio
+# pinned to the SAME version to avoid Transformers / AudioCraft breakage.
+#
+# If you need a specific CUDA build (e.g., cu121), install torch/torchaudio from
+# the official PyTorch index URL for your platform, then install the rest:
+#   pip install -r requirements.txt
 torch==2.2.2
 torchaudio==2.2.2
-# torchvision==0.17.2  # optional (only if something pulls it in)
+# torchvision==0.17.2  # optional
 
 # -----------------------------
-# MusicGen / AudioCraft stack
+# Transformers / HF stack
 # -----------------------------
-# Transformers must be new enough to expose EncodecModel, but also compatible
-# with the pinned torch version.
+# This pin avoids the torch.utils._pytree incompatibility you hit earlier.
 transformers==4.41.2
-huggingface_hub>=0.20.0
+huggingface_hub>=0.23.0
 safetensors>=0.4.0
+sentencepiece
 
+# -----------------------------
+# MusicGen / AudioCraft
+# -----------------------------
+# AudioCraft is installed from source (this is what you used successfully).
+git+https://github.com/facebookresearch/audiocraft.git
+
+# Common AudioCraft / audio deps used by your pipeline
 einops
 omegaconf
 soundfile
-sentencepiece
-scipy
 numpy>=1.26,<2.0
+scipy>=1.10
 psutil
 
-# AudioCraft (MusicGen wrapper)
-git+https://github.com/facebookresearch/audiocraft.git
-
 # -----------------------------
-# Voice + audio utilities
+# Voice engines
 # -----------------------------
-# IMPORTANT: This is the correct MeloTTS (provides `from melo.api import TTS`)
+# MeloTTS (correct package; provides: from melo.api import TTS)
 # Do NOT install the unrelated PyPI package named "melo".
 git+https://github.com/myshell-ai/MeloTTS.git
 
-# MeloTTS tokenization/dictionary (you still need: python -m unidic download)
+# MeloTTS dictionary (you still need to run: python -m unidic download)
 unidic
 
+# Coqui TTS (adds a large local model catalog for dropdowns)
+TTS>=0.22
+
+# -----------------------------
+# Audio utilities
+# -----------------------------
 pydub==0.25.1
 
 # -----------------------------
@@ -45,8 +61,16 @@ pydub==0.25.1
 # -----------------------------
 Flask>=3.0
 
-# Optional voice engines (install as needed)
-# Coqui TTS (adds lots of local models)
-TTS>=0.22
+# -----------------------------
+# Compatibility / future-proofing
+# -----------------------------
+# You saw a warning: librosa -> pkg_resources deprecation.
+# Keeping setuptools below 81 avoids sudden breakage in some stacks until they update.
+setuptools<81
 
-# Piper (CLI) is not a Python wheel requirement; install via system/package manager and put `piper` in PATH.
+# -----------------------------
+# External (NOT Python deps)
+# -----------------------------
+# - ffmpeg: required by pydub for many audio formats (install via OS package manager)
+# - Piper: installed as a CLI binary; not a pip requirement
+#   Your app detects it via PATH or PIPER_BIN and scans voices via PIPER_VOICES_DIR.

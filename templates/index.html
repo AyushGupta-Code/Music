@@ -16,12 +16,14 @@
       .card { border: 1px solid #ddd; border-radius: 16px; padding: 16px; box-shadow: 0 1px 10px rgba(0,0,0,.04); }
       .small { font-size: 13px; color: #444; }
       .hidden { display: none; }
+      .muted { color: #666; }
     </style>
   </head>
+
   <body>
     <h1>Paragraph → Emotion → Music + Voice</h1>
-    <p class="small">
-      Dropdown-only configuration. Voice model list depends on the selected engine.
+    <p class="small muted">
+      Dropdown-only configuration. Voice models are populated dynamically per engine.
       Metrics are saved to <code>metrics/metrics.csv</code> and <code>metrics/metrics.jsonl</code>.
     </p>
 
@@ -62,7 +64,7 @@
                 </option>
               {% endfor %}
             </select>
-            <div class="hint">Engines appear only if installed.</div>
+            <div class="hint">Engines appear only if installed/available.</div>
           </div>
 
           <div>
@@ -72,7 +74,9 @@
                 <option value="{{ v }}" {% if v==default_voice_model %}selected{% endif %}>{{ lbl }}</option>
               {% endfor %}
             </select>
-            <div class="hint">For MeloTTS this is a language code; for Coqui/Piper this is the specific model.</div>
+            <div class="hint">
+              MeloTTS: English-only. Coqui: large English catalog. Piper: local .onnx voices.
+            </div>
           </div>
 
           <div>
@@ -91,7 +95,7 @@
                 <option value="{{ spk }}">{{ spk }}</option>
               {% endfor %}
             </select>
-            <div class="hint">Only meaningful for MeloTTS.</div>
+            <div class="hint">Lazy-loaded after page render to avoid blocking <code>/</code>.</div>
           </div>
 
           <div>
@@ -126,8 +130,10 @@
       async function loadMeloSpeakers(language) {
         const res = await fetch(`/api/melo_speakers?language=${encodeURIComponent(language)}`);
         const items = await res.json();
+
         const sel = document.getElementById("voice_speaker");
         const prev = sel.value;
+
         sel.innerHTML = "";
         const autoOpt = document.createElement("option");
         autoOpt.value = "";
@@ -140,6 +146,8 @@
           opt.textContent = spk;
           sel.appendChild(opt);
         }
+
+        // Preserve previous selection if still present
         sel.value = prev;
       }
 
@@ -155,24 +163,46 @@
       engineSel.addEventListener("change", async () => {
         const engine = engineSel.value;
         setSpeakerVisibility(engine);
+
+        // Update model dropdown based on engine
         await loadVoiceModels(engine);
 
+        // If Melo selected, refresh speakers using selected language (EN in your build)
         if (engine === "melotts") {
-          // new model list = languages; refresh speakers for selected language
           const lang = modelSel.value || "EN";
-          await loadMeloSpeakers(lang);
+          try {
+            await loadMeloSpeakers(lang);
+          } catch (e) {
+            console.warn("Failed to load Melo speakers:", e);
+          }
         }
       });
 
       modelSel.addEventListener("change", async () => {
         const engine = engineSel.value;
         if (engine === "melotts") {
-          await loadMeloSpeakers(modelSel.value || "EN");
+          try {
+            await loadMeloSpeakers(modelSel.value || "EN");
+          } catch (e) {
+            console.warn("Failed to load Melo speakers:", e);
+          }
         }
       });
 
       // initial visibility
       setSpeakerVisibility(engineSel.value);
+
+      // NEW: lazy-load Melo speakers after the page renders (prevents blocking GET /)
+      window.addEventListener("DOMContentLoaded", async () => {
+        if (engineSel.value === "melotts") {
+          try {
+            await loadMeloSpeakers(modelSel.value || "EN");
+          } catch (e) {
+            // keep page usable even if speaker fetch fails
+            console.warn("Failed to load Melo speakers:", e);
+          }
+        }
+      });
     </script>
   </body>
 </html>

@@ -168,8 +168,9 @@ def index():
     default_voice_engine = "melotts" if "melotts" in engines else (next(iter(engines.keys())) if engines else "")
     default_voice_model = "EN" if default_voice_engine == "melotts" else ""
 
+    # IMPORTANT: do NOT call list_melo_speakers() here (it may trigger downloads/load).
     initial_voice_models = list_voice_models(default_voice_engine)
-    initial_speakers = list_melo_speakers("EN") if default_voice_engine == "melotts" else []
+    initial_speakers = []  # lazy-load via JS after page render
 
     return render_template(
         "index.html",
@@ -181,7 +182,6 @@ def index():
         initial_voice_models=initial_voice_models,
         initial_speakers=initial_speakers,
     )
-
 
 @app.post("/generate")
 def generate():
@@ -250,4 +250,4 @@ def download(request_id: str):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
