@@ -44,3 +44,9 @@ pydub==0.25.1
 # Web app
 # -----------------------------
 Flask>=3.0
+
+# Optional voice engines (install as needed)
+# Coqui TTS (adds lots of local models)
+TTS>=0.22
+
+# Piper (CLI) is not a Python wheel requirement; install via system/package manager and put `piper` in PATH.

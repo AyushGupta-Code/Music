@@ -15,12 +15,14 @@
       .hint { color: #555; font-size: 13px; margin-top: 6px; }
       .card { border: 1px solid #ddd; border-radius: 16px; padding: 16px; box-shadow: 0 1px 10px rgba(0,0,0,.04); }
       .small { font-size: 13px; color: #444; }
+      .hidden { display: none; }
     </style>
   </head>
   <body>
     <h1>Paragraph → Emotion → Music + Voice</h1>
     <p class="small">
-      Metrics are saved to <code>metrics/metrics.csv</code> and <code>metrics/metrics.jsonl</code> after each run.
+      Dropdown-only configuration. Voice model list depends on the selected engine.
+      Metrics are saved to <code>metrics/metrics.csv</code> and <code>metrics/metrics.jsonl</code>.
     </p>
 
     <div class="card">
@@ -28,9 +30,9 @@
         <label for="paragraph">Paragraph</label>
         <textarea id="paragraph" name="paragraph" placeholder="Paste a paragraph here...">{{ default_paragraph }}</textarea>
 
-        <div class="row3" style="margin-top: 16px;">
+        <div class="row3" style="margin-top:16px;">
           <div>
-            <label for="music_model">Background Music Model</label>
+            <label for="music_model">Music Model</label>
             <select id="music_model" name="music_model">
               {% for k, v in music_models.items() %}
                 <option value="{{ k }}">{{ k }} ({{ v }})</option>
@@ -40,54 +42,137 @@
           </div>
 
           <div>
-            <label for="voice_speaker">Voice Model (Speaker)</label>
-            <select id="voice_speaker" name="voice_speaker">
-              <option value="">Auto</option>
-              {% for spk in voice_speakers %}
-                <option value="{{ spk }}">{{ spk }}</option>
-              {% endfor %}
-            </select>
-            <div class="hint">Speaker keys come from your Melo/OpenVoice language pack.</div>
-          </div>
-
-          <div>
             <label for="duration_s">Music Duration (seconds)</label>
             <input id="duration_s" name="duration_s" type="number" min="2" max="60" step="1" value="8"/>
           </div>
-        </div>
 
-        <div class="row" style="margin-top: 16px;">
-          <div>
-            <label for="voice_language">Voice Language</label>
-            <input id="voice_language" name="voice_language" type="text" value="EN"/>
-            <div class="hint">Examples: EN, ES, FR, ZH (must be supported by your install).</div>
-          </div>
-          <div>
-            <label for="voice_speed">Voice Speed</label>
-            <input id="voice_speed" name="voice_speed" type="number" min="0.6" max="1.4" step="0.05" value="1.0"/>
-          </div>
-        </div>
-
-        <div class="row3" style="margin-top: 16px;">
           <div>
             <label for="seed">Seed (optional)</label>
             <input id="seed" name="seed" type="number" placeholder="e.g., 42"/>
           </div>
+        </div>
+
+        <div class="row3" style="margin-top:16px;">
+          <div>
+            <label for="voice_engine">Voice Engine</label>
+            <select id="voice_engine" name="voice_engine">
+              {% for key, spec in engines.items() %}
+                <option value="{{ key }}" {% if key==default_voice_engine %}selected{% endif %}>
+                  {{ spec.label }}
+                </option>
+              {% endfor %}
+            </select>
+            <div class="hint">Engines appear only if installed.</div>
+          </div>
+
+          <div>
+            <label for="voice_model">Voice Model</label>
+            <select id="voice_model" name="voice_model">
+              {% for v, lbl in initial_voice_models %}
+                <option value="{{ v }}" {% if v==default_voice_model %}selected{% endif %}>{{ lbl }}</option>
+              {% endfor %}
+            </select>
+            <div class="hint">For MeloTTS this is a language code; for Coqui/Piper this is the specific model.</div>
+          </div>
+
+          <div>
+            <label for="voice_speed">Voice Speed</label>
+            <input id="voice_speed" name="voice_speed" type="number" min="0.6" max="1.4" step="0.05" value="1.0"/>
+            <div class="hint">Used primarily for MeloTTS.</div>
+          </div>
+        </div>
+
+        <div class="row3" style="margin-top:16px;">
+          <div id="speaker_block">
+            <label for="voice_speaker">Melo Speaker</label>
+            <select id="voice_speaker" name="voice_speaker">
+              <option value="">Auto</option>
+              {% for spk in initial_speakers %}
+                <option value="{{ spk }}">{{ spk }}</option>
+              {% endfor %}
+            </select>
+            <div class="hint">Only meaningful for MeloTTS.</div>
+          </div>
+
           <div>
             <label for="voice_ratio">Voice Ratio</label>
             <input id="voice_ratio" name="voice_ratio" type="number" min="0.1" max="1.0" step="0.05" value="0.8"/>
-            <div class="hint">Higher = louder voice.</div>
           </div>
+
           <div>
             <label for="music_ratio">Music Ratio</label>
             <input id="music_ratio" name="music_ratio" type="number" min="0.0" max="0.9" step="0.05" value="0.2"/>
-            <div class="hint">Higher = louder music.</div>
           </div>
         </div>
 
         <button class="btn" type="submit">Generate</button>
-        <div class="hint">You will get a results page with an audio preview, download link, and metrics.</div>
       </form>
     </div>
+
+    <script>
+      async function loadVoiceModels(engine) {
+        const res = await fetch(`/api/voice_models?engine=${encodeURIComponent(engine)}`);
+        const items = await res.json();
+        const sel = document.getElementById("voice_model");
+        sel.innerHTML = "";
+        for (const it of items) {
+          const opt = document.createElement("option");
+          opt.value = it.value;
+          opt.textContent = it.label;
+          sel.appendChild(opt);
+        }
+      }
+
+      async function loadMeloSpeakers(language) {
+        const res = await fetch(`/api/melo_speakers?language=${encodeURIComponent(language)}`);
+        const items = await res.json();
+        const sel = document.getElementById("voice_speaker");
+        const prev = sel.value;
+        sel.innerHTML = "";
+        const autoOpt = document.createElement("option");
+        autoOpt.value = "";
+        autoOpt.textContent = "Auto";
+        sel.appendChild(autoOpt);
+
+        for (const spk of items) {
+          const opt = document.createElement("option");
+          opt.value = spk;
+          opt.textContent = spk;
+          sel.appendChild(opt);
+        }
+        sel.value = prev;
+      }
+
+      function setSpeakerVisibility(engine) {
+        const block = document.getElementById("speaker_block");
+        if (engine === "melotts") block.classList.remove("hidden");
+        else block.classList.add("hidden");
+      }
+
+      const engineSel = document.getElementById("voice_engine");
+      const modelSel = document.getElementById("voice_model");
+
+      engineSel.addEventListener("change", async () => {
+        const engine = engineSel.value;
+        setSpeakerVisibility(engine);
+        await loadVoiceModels(engine);
+
+        if (engine === "melotts") {
+          // new model list = languages; refresh speakers for selected language
+          const lang = modelSel.value || "EN";
+          await loadMeloSpeakers(lang);
+        }
+      });
+
+      modelSel.addEventListener("change", async () => {
+        const engine = engineSel.value;
+        if (engine === "melotts") {
+          await loadMeloSpeakers(modelSel.value || "EN");
+        }
+      });
+
+      // initial visibility
+      setSpeakerVisibility(engineSel.value);
+    </script>
   </body>
 </html>

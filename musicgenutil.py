@@ -22,12 +22,22 @@ torch.set_num_threads(1)
 
 # Friendly name -> HF/audiocraft model id
 DEFAULT_MUSIC_MODELS: Dict[str, str] = {
+    # Core MusicGen (AudioCraft docs list these) :contentReference[oaicite:2]{index=2}
     "musicgen-small": "facebook/musicgen-small",
     "musicgen-medium": "facebook/musicgen-medium",
-    # "musicgen-melody": "facebook/musicgen-melody",
-    # "musicgen-large": "facebook/musicgen-large",
-    # "musicgen-style": "facebook/musicgen-style",
+    "musicgen-large": "facebook/musicgen-large",
+    "musicgen-melody": "facebook/musicgen-melody",
+    "musicgen-melody-large": "facebook/musicgen-melody-large",
+
+    # Style conditioning model (also official) :contentReference[oaicite:3]{index=3}
+    "musicgen-style": "facebook/musicgen-style",
+
+    # Stereo variants visible on HF under facebook/musicgen* :contentReference[oaicite:4]{index=4}
+    "musicgen-stereo-small": "facebook/musicgen-stereo-small",
+    "musicgen-stereo-medium": "facebook/musicgen-stereo-medium",
+    "musicgen-stereo-large": "facebook/musicgen-stereo-large",
 }
+
 
 # Cache per (resolved_model_id, device_str)
 _MODEL_CACHE: Dict[Tuple[str, str], "MusicGen"] = {}
