@@ -3,6 +3,20 @@ import re
 import tempfile
 from pathlib import Path
 
+# gradio_client bug: additionalProperties:false is a bool, not a schema object —
+# _json_schema_to_python_type recurses into it and crashes get_api_info() on every request,
+# which causes the Gradio health-check to fail and prevents launch() from completing.
+try:
+    import gradio_client.utils as _gcu
+    _orig_j2p = _gcu._json_schema_to_python_type
+    def _j2p_safe(schema, defs=None):
+        if not isinstance(schema, dict):
+            return "Any"
+        return _orig_j2p(schema, defs)
+    _gcu._json_schema_to_python_type = _j2p_safe
+except Exception:
+    pass
+
 import fitz  # pymupdf
 import gradio as gr
 from groq import Groq
@@ -117,7 +131,7 @@ def generate(chapter_name, chapters, music_model, voice, speed, music_duration, 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
-with gr.Blocks(title="Novel to Audio", theme=gr.themes.Soft(), api_open=False) as demo:
+with gr.Blocks(title="Novel to Audio", theme=gr.themes.Soft()) as demo:
     chapters_state = gr.State(value=None)
 
     gr.Markdown("# Novel to Audio\nUpload a PDF novel, pick a chapter, generate narrated audio with background score.")
