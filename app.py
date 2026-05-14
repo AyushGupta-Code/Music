@@ -117,7 +117,7 @@ def generate(chapter_name, chapters, music_model, voice, speed, music_duration, 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
-with gr.Blocks(title="Novel to Audio", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="Novel to Audio", theme=gr.themes.Soft(), api_open=False) as demo:
     chapters_state = gr.State(value=None)
 
     gr.Markdown("# Novel to Audio\nUpload a PDF novel, pick a chapter, generate narrated audio with background score.")
@@ -157,4 +157,4 @@ with gr.Blocks(title="Novel to Audio", theme=gr.themes.Soft()) as demo:
     )
 
 
-demo.launch(ssr_mode=False)
+demo.launch(ssr_mode=False, server_name="0.0.0.0")
