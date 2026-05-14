@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Env & secrets
+.env
+.venv/
+.conda/
+
+# Output
+output/
+*.wav
+*.mp3
+*.flac
+*.ogg
+
+# Models (downloaded at runtime)
+hf_models/*
+!hf_models/.gitkeep
+
+# macOS
+.DS_Store
+._*
